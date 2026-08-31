@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-abyss: #05060a;
+  --color-panel: #101319;
+  --color-panel-edge: #1c2230;
+  --color-ember: #ffb454;
+  --color-signal: #ff5c4d;
+  --color-faint: #8a93a6;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html,
+body {
+  background: var(--color-abyss);
+  color: #e6e9f0;
+}
