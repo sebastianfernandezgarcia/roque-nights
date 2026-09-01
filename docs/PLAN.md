@@ -93,3 +93,35 @@ Luz roja de observatorio: fondo #05060A, paneles #101319, ámbar #FFB454, rojo #
 - [ ] Texto: por qué WebMCP (cálculo client-side ⇒ sin WebMCP no hay agente posible), qué pueden hacer humano+agente juntos que antes era imposible, cómo está implementado
 - [ ] Probado en Chrome 151 + flag Y en ChatGPT desktop (GPT-5.6 Sol/Terra)
 - [ ] Releer /rules el día 3 antes de enviar (criterios y hora, por si editan)
+
+---
+
+## Addendum 1-sep-2026 (tarde): feedback de GPT-5.6 vía Site tools + dirección visual
+
+Primer test real con un agente externo (ChatGPT desktop, GPT-5.6, Site tools sobre https://roque-nights.netlify.app). La tool se descubrió y se usó bien (encadenó fechas, validó errores). Decisiones tomadas sobre su informe; **entran en los bloques B y D, no son un bloque aparte**.
+
+### Bugs de robustez (prioridad alta, un juez puede pisarlos)
+
+1. **Husos en coordenadas custom.** La tool aceptaba lat/lon de Mauna Kea y etiquetaba las horas "locales" en Atlantic/Canary. Decisión: el input pasa a ser un objeto `site: { latitude, longitude, elevation_m?, time_zone?, name? }` (par completo o nada, resuelto por el propio schema). Si no llega `time_zone` IANA para unas coordenadas custom: **solo UTC** en `summary` y `data`, `local_times: null`, y un `caveat` explícito que dice cómo pedir horas locales. Si las coordenadas caen a <1° de un sitio del catálogo de cielos oscuros (`src/data/sites.ts`, ~24 sitios con IANA tz), se infiere su huso y se avisa en `caveats`. Nunca inventamos un huso.
+2. **Fechas inválidas** (2026-13-99 pasaba el regex y reventaba astronomy-engine). Validación de fecha de calendario real (1900-2100) en un único helper `parseIsoDate`; error estructurado `{ ok:false, error:{ code:'invalid_date', message, hint } }`. Ninguna tool deja escapar una excepción: el wrapper de registro las convierte en `{ ok:false, error:{ code:'internal_error' } }`.
+3. **Casos polares / sin oscuridad.** `data.darkness.status ∈ 'ok' | 'no_astronomical_darkness' | 'continuous_darkness'` y `data.sun.status ∈ 'normal' | 'never_sets' | 'never_rises'`, con `summary` que lo dice en una frase ("No astronomical darkness at 69.65°N on 2026-06-21: the Sun never sets."). `ok:true` porque el cálculo es correcto; lo que estaba mal era callarse.
+4. **Lat/lon por separado**: resuelto por el objeto `site` con `required:[latitude,longitude]` + validación en runtime (`invalid_site`).
+
+### Prioridad media
+
+5. **Activity log con resultado**: cada llamada registra `running → ok | error`, duración en ms y un extracto del `summary` (o el mensaje de error). El humano ve qué devolvió el agente, no solo qué pidió.
+6. **Renombrar la tool 1**: `get_observing_conditions` → **`get_night_ephemeris`** (título "Night ephemeris: darkness window, Sun and Moon"). Su description dice explícitamente que NO incluye meteorología. La meteo (Open-Meteo, decisión 6) vive solo en `compare_dark_sky_sites`. La tabla de 14 tools sigue siendo el tope: es un rename, no una tool nueva.
+
+### Sus "missing capabilities" = nuestro roadmap
+
+Weather → tool 14. Target visibility (alt/az, tránsito, airmass, separación lunar, ventanas) → tools 2, 7, 10. Date-range ranking (`find_best_observing_nights`) → tool 3 `rank_nights`. Site handling → objeto `site` + form declarativo. Edge cases estructurados → punto 3. No cambia el orden de los bloques.
+
+### Dirección visual (la app tiene que impresionar en un vídeo de 3 minutos)
+
+- **El mapa celeste es el protagonista**: grande, hermoso, cúpula estereográfica interactiva con estrellas reales (tamaño por magnitud, color por B-V), Vía Láctea sutil (contornos de d3-celestial simplificados), constelaciones trazables, planetas y Messier destacados con glifo por tipo, Luna con halo por iluminación.
+- **Estética de sala de control en luz roja/ámbar se mantiene** (#05060A / #101319 / #FFB454 / #FF5C4D, IBM Plex Mono). Todo lo nuevo la respeta. Toggle de luz roja = identidad.
+- **Animación con propósito**: `point_sky_map` y "añadir al plan" mueven la cúpula con easing (~1.2 s, cubic in-out) y dejan retículo/pulso visible. Es EL momento del vídeo: el humano mira y el mapa se mueve solo.
+- **Favoritos del humano** tocando objetos en el mapa (marca ámbar + pulso), leídos por el agente vía `describe_current_view`.
+- **El plan es un timeline visual de la noche** (altitud × tiempo: bandas de crepúsculo, interferencia lunar, bloques por objeto), no una lista.
+- **60 fps**: canvas 2D con capas cacheadas (estrellas se redibujan solo si cambia tiempo/vista); WebGL solo si el canvas no llega.
+- **Tiene que lucir igual en la ventana del navegador de ChatGPT** (~1100×750): layout mapa + columna lateral, sin depender de pantallas grandes; por debajo de 900 px apila.
