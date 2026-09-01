@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roque-nights.netlify.app/schemas/observing-plan.v1.json",
+  "title": "Observing plan v1",
+  "description": "A night of observing, portable between observers. It carries the site, the night and the darkness window it was built for, not just a list of targets, so that any reader can recompute every time for their own sky instead of trusting the author's. Produced and consumed by Roque Nights (export_plan / import_plan); anyone may implement it.",
+  "type": "object",
+  "required": ["version", "generator", "created_at", "site", "night_of", "darkness", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this schema. Optional, but writing it makes the document self describing.",
+      "const": "https://roque-nights.netlify.app/schemas/observing-plan.v1.json"
+    },
+    "version": {
+      "const": 1,
+      "description": "Format version. A reader that does not know a version must refuse the document rather than guess."
+    },
+    "generator": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "Application that wrote the document, for example \"roque-nights\"."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d{1,6})?Z$",
+      "description": "When the document was written, UTC."
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "Who made the plan. Optional and free form; no identity is implied."
+    },
+    "site": {
+      "type": "object",
+      "description": "Where the plan was made. The importer compares it with its own site and explains the differences.",
+      "required": ["name", "latitude", "longitude", "elevation_m", "time_zone"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90,
+          "description": "Decimal degrees, north positive."
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180,
+          "description": "Decimal degrees, EAST positive."
+        },
+        "elevation_m": { "type": "number", "minimum": -430, "maximum": 9000 },
+        "time_zone": {
+          "type": ["string", "null"],
+          "description": "IANA time zone name, or null when the author did not know it. Never guess one: null means local times are unknown, not UTC."
+        }
+      }
+    },
+    "night_of": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Calendar date of the EVENING the night starts, in the site's local zone."
+    },
+    "darkness": {
+      "type": "object",
+      "description": "Astronomical darkness window at the author's site, or nulls when that night had none.",
+      "required": ["start_utc", "end_utc"],
+      "additionalProperties": false,
+      "properties": {
+        "start_utc": { "$ref": "#/$defs/nullableInstant" },
+        "end_utc": { "$ref": "#/$defs/nullableInstant" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "The blocks of the night, in any order; readers sort by start_utc.",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "instant": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d{1,6})?Z$",
+      "description": "UTC instant. The trailing Z is required: this format has no floating local times."
+    },
+    "nullableInstant": {
+      "anyOf": [{ "$ref": "#/$defs/instant" }, { "type": "null" }]
+    },
+    "item": {
+      "type": "object",
+      "required": ["target_id", "name", "start_utc", "end_utc", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "target_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Stable id of the target: a Messier id (\"M31\"), a solar system body (\"jupiter\", \"moon\") or \"star:<name>\". A reader that does not know the id falls back to name."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the target, for example \"Andromeda\"."
+        },
+        "start_utc": { "$ref": "#/$defs/instant" },
+        "end_utc": { "$ref": "#/$defs/instant" },
+        "note": { "type": "string", "maxLength": 500 },
+        "source": {
+          "enum": ["human", "agent"],
+          "description": "Who put this block in the plan: the person at the eyepiece or their agent."
+        }
+      }
+    }
+  }
+}

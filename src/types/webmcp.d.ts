@@ -48,7 +48,26 @@ declare global {
       tool: RegisteredModelContextTool,
       input?: Record<string, unknown>,
     ): Promise<string>
+    /**
+     * Optional in the current spec draft and absent from some engines: the
+     * documented way to drop a tool is to abort the `AbortSignal` passed to
+     * `registerTool`. Roque Nights aborts first and calls this too when the
+     * engine exposes it, so contextual tools disappear from the agent's list
+     * even on an implementation that ignores the signal. Always feature-detect.
+     */
+    unregisterTool?(name: string): void
     ontoolchange: ((this: ModelContext, ev: Event) => unknown) | null
+  }
+
+  /**
+   * The event a declarative form receives when an agent submits it through the
+   * `toolname` attribute (WebMCP's declarative API). `data` holds the values the
+   * agent supplied; `respondWith` sends the tool result back to the agent.
+   * Both are optional because the shape is still moving in the spec draft.
+   */
+  interface AgentInvokedEvent extends Event {
+    data?: Record<string, unknown>
+    respondWith?(value: unknown): void
   }
 
   interface Document {

@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/*
+ * Red light, observatory. Amber and signal red survive dark adaptation; the
+ * daylight palette below is the exception, for planning before sunset.
+ *
+ * The `lg` breakpoint is pulled down to 960 px on purpose: the target window is
+ * the browser inside ChatGPT desktop (~1100x750), and the two column layout has
+ * to hold there.
+ */
 @theme {
   --color-abyss: #05060a;
   --color-panel: #101319;
@@ -7,11 +15,118 @@
   --color-ember: #ffb454;
   --color-signal: #ff5c4d;
   --color-faint: #8a93a6;
+  --color-daylight: #6ee7f0;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --breakpoint-lg: 960px;
+}
+
+/*
+ * Daylight mode: same instrument, cooler light. `Header.tsx` sets the attribute
+ * on <html> when the human turns the red light off, so every `bg-panel` and
+ * `border-panel-edge` in the tree follows without a single conditional class.
+ */
+html[data-daylight] {
+  --color-abyss: #080b12;
+  --color-panel: #0f1420;
+  --color-panel-edge: #263043;
+  --color-faint: #93a0b8;
+}
+
+html {
+  color-scheme: dark;
 }
 
 html,
 body {
   background: var(--color-abyss);
   color: #e6e9f0;
+  /* The right column scrolls; the page itself never scrolls sideways. */
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  /* Tabular figures everywhere: this page is mostly numbers that must line up. */
+  font-feature-settings: "tnum" 1, "cv02" 1;
+}
+
+/* --------------------------------------------------------------------------
+ * Motion with a purpose: both of these mark something the AGENT just did.
+ * -------------------------------------------------------------------------- */
+
+@keyframes agent-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-signal) 26%, transparent);
+    border-color: color-mix(in srgb, var(--color-signal) 60%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    border-color: var(--color-panel-edge);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/** One agent line in the activity log, arriving. */
+.agent-flash {
+  animation: agent-flash 1400ms ease-out 1;
+}
+
+/** The ring `point_sky_map` leaves behind on the dome. */
+.pulse-ring {
+  animation: pulse-ring 900ms cubic-bezier(0.33, 1, 0.68, 1) 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-flash,
+  .pulse-ring {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Thin dark scrollbars: a bright scrollbar at 2 a.m. is a real problem.
+ * -------------------------------------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-panel-edge) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-panel-edge);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-ember) 45%, var(--color-panel-edge));
+}
+
+/** The instrument column. Named so the layout owns its own scroll container. */
+.roque-scroll {
+  overscroll-behavior: contain;
+}
+
+/* The native date picker glyph is black on black without this. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7) sepia(1) saturate(4) hue-rotate(347deg);
+  cursor: pointer;
 }

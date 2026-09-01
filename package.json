@@ -9,7 +9,6 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "smoke": "node scripts/smoke.cjs",
     "vendor:catalogs": "node scripts/vendor-catalogs.mjs"
   },
   "dependencies": {
