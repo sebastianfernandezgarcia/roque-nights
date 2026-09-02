@@ -1,0 +1,31 @@
+{
+  "name": "roque-nights-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remotion project for the Roque Nights submission video",
+  "license": "MIT",
+  "scripts": {
+    "prestudio": "node scripts/manifest.mjs",
+    "studio": "remotion studio",
+    "prerender": "node scripts/manifest.mjs",
+    "render": "remotion render RoqueNightsPromo out/roque-nights.mp4 --codec h264 --crf 18",
+    "prethumbnail": "node scripts/manifest.mjs",
+    "thumbnail": "remotion still Thumbnail out/thumbnail.png --frame 0",
+    "ambient": "node scripts/make-ambient.mjs",
+    "placeholders": "node scripts/make-placeholders.mjs",
+    "pretypecheck": "node scripts/manifest.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.520",
+    "@remotion/google-fonts": "4.0.520",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.520"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.0",
+    "typescript": "5.8.3"
+  }
+}

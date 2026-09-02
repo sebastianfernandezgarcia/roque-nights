@@ -1,0 +1,7 @@
+node_modules
+out
+
+# Generated media (regenerate with `npm run ambient` / `npm run placeholders`)
+public/ambient.wav
+public/ambient.m4a
+public/dome-still.jpg

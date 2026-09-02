@@ -1,0 +1,285 @@
+{
+  "recordedAt": "2026-09-02T14:15:26.452Z",
+  "url": "https://roque-nights.netlify.app",
+  "clips": [
+    {
+      "id": "01-onboarding",
+      "file": "01-onboarding.mp4",
+      "durationMs": 25567,
+      "firstActionAtMs": 2168,
+      "events": [
+        {
+          "atMs": 2168,
+          "kind": "note",
+          "label": "tour step 1"
+        },
+        {
+          "atMs": 5302,
+          "kind": "human",
+          "label": "Next"
+        },
+        {
+          "atMs": 6204,
+          "kind": "note",
+          "label": "tour step 2 · the prompt"
+        },
+        {
+          "atMs": 6867,
+          "kind": "human",
+          "label": "Copy prompt"
+        },
+        {
+          "atMs": 9834,
+          "kind": "human",
+          "label": "Next"
+        },
+        {
+          "atMs": 9834,
+          "kind": "note",
+          "label": "tour step 3 · favorites"
+        },
+        {
+          "atMs": 12710,
+          "kind": "human",
+          "label": "Next"
+        },
+        {
+          "atMs": 12710,
+          "kind": "note",
+          "label": "tour step 4 · the ghost plan"
+        },
+        {
+          "atMs": 15586,
+          "kind": "human",
+          "label": "Done"
+        }
+      ]
+    },
+    {
+      "id": "02-agent-points",
+      "file": "02-agent-points.mp4",
+      "durationMs": 24467,
+      "firstActionAtMs": 2518,
+      "events": [
+        {
+          "atMs": 2518,
+          "kind": "note",
+          "label": "the agent takes over"
+        },
+        {
+          "atMs": 3478,
+          "kind": "tool",
+          "label": "rank_nights",
+          "detail": "Best astronomical night of 15 (2026-09-02 to 2026-09-16) at Roque de los Muchachos, La Palma: 2026-09-13 (score 90, 9.0 usable dark hours, Moon 8%), then 2026-09-12 (score 89, 8.9 usable dark hours, Moon 4%), 2026-09-11 (score 89, 8.9 usable dark hours, Moon 1%)."
+        },
+        {
+          "atMs": 4990,
+          "kind": "tool",
+          "label": "set_observing_time",
+          "detail": "Time set to 2026-09-14 02:07 local (01:07 UTC) on the night of 2026-09-13 at Roque de los Muchachos, La Palma: the Sun is 57.8° below the horizon (astronomical darkness) and the Moon is below the horizon."
+        },
+        {
+          "atMs": 6529,
+          "kind": "tool",
+          "label": "find_observable_targets",
+          "detail": "56 of 118 targets are observable on 2026-09-13 from Roque de los Muchachos, La Palma above 30°: best are M45 Pleiades (peak 85°, 06:28 local), Saturn (peak 64°, 03:28 local), M31 Andromeda (peak 77°, 03:18 local) and 5 more in the list. Rejected 62 (56 below minimum altitude, 6 window too short)."
+        },
+        {
+          "atMs": 8056,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "M13"
+        },
+        {
+          "atMs": 11268,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "M31"
+        },
+        {
+          "atMs": 14484,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "Saturn"
+        },
+        {
+          "atMs": 17703,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "M45"
+        },
+        {
+          "atMs": 20923,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "whole sky"
+        }
+      ]
+    },
+    {
+      "id": "03-favorites",
+      "file": "03-favorites.mp4",
+      "durationMs": 24633,
+      "firstActionAtMs": 2751,
+      "events": [
+        {
+          "atMs": 2751,
+          "kind": "note",
+          "label": "the human marks two favorites"
+        },
+        {
+          "atMs": 3465,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "M31"
+        },
+        {
+          "atMs": 6839,
+          "kind": "human",
+          "label": "double-click · favorite M31"
+        },
+        {
+          "atMs": 9567,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "M45"
+        },
+        {
+          "atMs": 12939,
+          "kind": "human",
+          "label": "double-click · favorite M45"
+        },
+        {
+          "atMs": 15257,
+          "kind": "tool",
+          "label": "point_sky_map",
+          "detail": "whole sky"
+        },
+        {
+          "atMs": 17679,
+          "kind": "tool",
+          "label": "describe_current_view",
+          "detail": "Looking at the whole sky (fov 186°) from Roque de los Muchachos, La Palma at 2026-09-14 02:07 local (01:07 UTC) on the night of 2026-09-13; 47 catalog objects above the horizon; selected M45; favorites: Andromeda, Pleiades; the plan is empty. Last action: toggled favorite M45 added 5 s ago."
+        }
+      ]
+    },
+    {
+      "id": "04-ghost-plan",
+      "file": "04-ghost-plan.mp4",
+      "durationMs": 23200,
+      "firstActionAtMs": 2531,
+      "events": [
+        {
+          "atMs": 2531,
+          "kind": "note",
+          "label": "the agent proposes"
+        },
+        {
+          "atMs": 3448,
+          "kind": "tool",
+          "label": "propose_plan",
+          "detail": "Proposed 4 targets for the night of 2026-09-13 at Roque de los Muchachos, La Palma (darkness 21:38-06:36 local): M13 21:38-22:23, M31 02:55-03:40, saturn 03:40-04:25, M45 05:51-06:36. Waiting for the person's review; nothing is committed yet."
+        },
+        {
+          "atMs": 7844,
+          "kind": "human",
+          "label": "hover a ghost block"
+        },
+        {
+          "atMs": 10408,
+          "kind": "human",
+          "label": "Accept 1"
+        },
+        {
+          "atMs": 11960,
+          "kind": "human",
+          "label": "Accept 2"
+        },
+        {
+          "atMs": 13516,
+          "kind": "human",
+          "label": "Accept 3"
+        },
+        {
+          "atMs": 15073,
+          "kind": "human",
+          "label": "Accept 4"
+        },
+        {
+          "atMs": 17962,
+          "kind": "human",
+          "label": "Commit accepted"
+        }
+      ]
+    },
+    {
+      "id": "05-another-sky",
+      "file": "05-another-sky.mp4",
+      "durationMs": 23533,
+      "firstActionAtMs": 2669,
+      "events": [
+        {
+          "atMs": 2669,
+          "kind": "note",
+          "label": "the app moves to Mauna Kea"
+        },
+        {
+          "atMs": 3595,
+          "kind": "tool",
+          "label": "set_observing_site",
+          "detail": "Mauna Kea"
+        },
+        {
+          "atMs": 6213,
+          "kind": "tool",
+          "label": "set_observing_time",
+          "detail": "Mauna Kea midnight"
+        },
+        {
+          "atMs": 11308,
+          "kind": "human",
+          "label": "Revalidate plan"
+        },
+        {
+          "atMs": 15328,
+          "kind": "tool",
+          "label": "export_plan",
+          "detail": "json"
+        },
+        {
+          "atMs": 19211,
+          "kind": "human",
+          "label": "Copy share link"
+        }
+      ]
+    },
+    {
+      "id": "06-dome",
+      "file": "06-dome.mp4",
+      "durationMs": 23233,
+      "firstActionAtMs": 2969,
+      "events": [
+        {
+          "atMs": 2969,
+          "kind": "note",
+          "label": "the night runs"
+        },
+        {
+          "atMs": 3965,
+          "kind": "human",
+          "label": "x600"
+        }
+      ]
+    }
+  ],
+  "facts": {
+    "toolsRegistered": 15,
+    "bestNight": "2026-09-13",
+    "bestScore": 90,
+    "usableHours": 8.97,
+    "moonPct": 8,
+    "saturnRoque": "03:40–04:25",
+    "saturnMaunaKea": "01:52–02:37",
+    "revalidation": "4 kept, 4 moved, 0 dropped"
+  }
+}

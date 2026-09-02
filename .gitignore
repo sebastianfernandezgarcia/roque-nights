@@ -25,3 +25,14 @@ dist-ssr
 
 # Netlify CLI local state
 .netlify/
+
+# Remotion video project (standalone package)
+video/node_modules
+video/out
+
+# Video renders and recordings are too large for git: regenerate with
+# node scripts/video/record.mjs and npm run render inside video/
+video/public/clips/*.mp4
+video/public/ambient.*
+video/public/dome-still.*
+docs/video/*.mp4
