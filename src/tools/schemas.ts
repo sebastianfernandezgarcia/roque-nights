@@ -19,7 +19,7 @@ export const DATE_SCHEMA: JsonSchema = {
 export const SITE_SCHEMA: JsonSchema = {
   type: 'object',
   description:
-    'Observing site to compute for. Omit to use the site currently shown in the app. Otherwise name a dark-sky catalog site with id (preferred) or name, OR pass BOTH latitude and longitude, plus time_zone (IANA, e.g. "Pacific/Honolulu") if you want local times; without a zone only UTC is returned. An object that does neither comes back as invalid_site with a hint. Answering for a site here does NOT move the app: to change the site the page itself shows, call the tool set_observing_site (the page also carries a declarative form of the same name, and both go through the same validation).',
+    'Observing site to compute for. Omit to use the site currently shown in the app. Otherwise name a dark-sky catalog site with id (preferred) or name, OR pass BOTH latitude and longitude, plus time_zone (IANA, e.g. "Pacific/Honolulu") if you want local times; without a zone only UTC is returned. An object that does neither comes back as invalid_site with a hint. Answering for a site here does NOT move the app: to change the site the page itself shows, call the tool set_observing_site (the page also carries a declarative form named set_observing_site_form, and both go through the same validation).',
   properties: {
     id: {
       type: 'string',

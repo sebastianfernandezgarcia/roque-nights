@@ -50,7 +50,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: 'favorites',
-    title: 'Tap any object to mark it as a favorite. Your agent can see it.',
+    title: 'Tap any object, then press Favorite (or double-click it) to mark it. Your agent can see it.',
   },
   {
     id: 'plan',

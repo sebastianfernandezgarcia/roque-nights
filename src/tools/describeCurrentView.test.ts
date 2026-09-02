@@ -52,9 +52,10 @@ describe('describe_current_view declaration', () => {
     ).toBe(true)
   })
 
-  it('names the declarative form as the only way to change the site', () => {
+  it('names the set_observing_site tool and its declarative twin for changing the site', () => {
     expect(describeCurrentViewTool.description).toContain('set_observing_site')
-    expect(describeCurrentViewTool.description).toContain('no tool moves the app to another site')
+    expect(describeCurrentViewTool.description).toContain('call the tool set_observing_site')
+    expect(describeCurrentViewTool.description).toContain('set_observing_site_form')
   })
 
   it('has an input schema Ajv compiles that refuses unknown properties', () => {

@@ -68,7 +68,7 @@ describe('the tour copy', () => {
   })
 
   it('ends on favorites and on the ghost plan', () => {
-    expect(TOUR_STEPS[2].title).toBe('Tap any object to mark it as a favorite. Your agent can see it.')
+    expect(TOUR_STEPS[2].title).toBe('Tap any object, then press Favorite (or double-click it) to mark it. Your agent can see it.')
     expect(TOUR_STEPS[3].title).toBe(
       'Review the ghost plan your agent proposes, adjust it together, then export.',
     )
