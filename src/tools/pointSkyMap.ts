@@ -195,6 +195,25 @@ function run(input: Record<string, unknown>): ToolResult<PointSkyMapData> {
     )
   }
 
+  // Two arguments that cancel each other are a misunderstanding, not a request.
+  // A schema cannot express "these are mutually exclusive" in a form strict
+  // function-calling validators accept, so the refusal happens here, with the
+  // corrected call spelled out.
+  if (query && wantsReset) {
+    return fail(
+      'invalid_input',
+      'Pass either target or reset:true, not both.',
+      'Example: { "target": "M31", "fov_deg": 40 }',
+    )
+  }
+  if (hasAlt !== hasAz) {
+    return fail(
+      'invalid_input',
+      'Pass altitude_deg and azimuth_deg together.',
+      'Example: { "altitude_deg": 45, "azimuth_deg": 180, "fov_deg": 60 }',
+    )
+  }
+
   let target: Target | null = null
   if (query) {
     const found = getTarget(query)
@@ -349,7 +368,7 @@ function run(input: Record<string, unknown>): ToolResult<PointSkyMapData> {
 export const pointSkyMapTool: ModelContextToolDefinition = defineTool<PointSkyMapData>({
   name: 'point_sky_map',
   title: 'Point the shared sky map',
-  description: `Use this to move the shared sky map the person is looking at: center it on a target (Messier id like "M31", a planet, "Moon" or a bright star) or on an explicit altitude/azimuth, set the zoom as a field of view in degrees (186 = whole sky dome, 60 = a constellation, 10 = a cluster), and optionally highlight objects. Pass at least one of target, altitude_deg with azimuth_deg, fov_deg, highlight or reset: an empty call is refused with invalid_input. The map animates smoothly so the person sees the move and the object you centred on keeps a red agent ring afterwards; call describe_current_view afterwards if you need to know what became visible. Returns where the target is at the map's current time (altitude, azimuth, compass direction, above or below the horizon) and warns when it is below the horizon. Does not change the plan.`,
+  description: `Use this to move the shared sky map the person is looking at: center it on a target (Messier id like "M31", a planet, "Moon" or a bright star) or on an explicit altitude/azimuth, set the zoom as a field of view in degrees (186 = whole sky dome, 60 = a constellation, 10 = a cluster), and optionally highlight objects. Pass at least one of target, altitude_deg with azimuth_deg, fov_deg, highlight or reset: an empty call is refused with invalid_input. Two combinations are refused as well, each with the corrected call in the hint: target together with reset:true (they contradict each other), and altitude_deg without azimuth_deg or the other way round (a direction needs both). The map animates smoothly so the person sees the move and the object you centred on keeps a red agent ring afterwards; call describe_current_view afterwards if you need to know what became visible. Returns where the target is at the map's current time (altitude, azimuth, compass direction, above or below the horizon) and warns when it is below the horizon. Does not change the plan.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,

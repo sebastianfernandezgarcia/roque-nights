@@ -15,12 +15,19 @@ import { getNight } from '../astro/cache'
 import { getTarget } from '../astro/catalog'
 import type { Target } from '../astro/catalog'
 import type { DarknessStatus, NightEphemeris, SiteCoords } from '../astro/night'
-import { airmass, moonSeparationDeg, targetAltAz } from '../astro/targets'
+import {
+  airmass,
+  apparentMagnitude,
+  computeVisibility,
+  moonSeparationDeg,
+  targetAltAz,
+} from '../astro/targets'
 import { roundTo } from '../astro/time'
 import { store } from '../state/store'
 import type { ActorSource, Filters, PlanItem } from '../state/types'
 import type { Stamp, ToolResult } from './envelope'
 import { defineTool, ok, stamp } from './envelope'
+import { planStaleMessage } from './planStale'
 
 const MINUTE_MS = 60_000
 /** Altitude sampling inside a block, for the peak. */
@@ -40,6 +47,11 @@ export interface PlanItemView {
 
 export interface PlanItemReport extends PlanItemView {
   type: string
+  /** Apparent visual magnitude: the catalog value for fixed objects, computed for bodies. */
+  magnitude: number | null
+  /** When the target crosses the meridian during this night, null when it never does. */
+  transit: Stamp
+  transit_altitude_deg: number | null
   altitude_start_deg: number | null
   altitude_end_deg: number | null
   peak_altitude_deg: number | null
@@ -237,6 +249,9 @@ function run(): ToolResult<GetCurrentPlanData> {
     let peak: number | null = null
     let airmassMid: number | null = null
     let moonSep: number | null = null
+    let magnitude: number | null = null
+    let transitUtc: string | null = null
+    let transitAltDeg: number | null = null
 
     if (target && Number.isFinite(startMs) && Number.isFinite(endMs)) {
       altStart = roundTo(targetAltAz(target, new Date(startMs), site).altDeg, 2)
@@ -246,11 +261,30 @@ function run(): ToolResult<GetCurrentPlanData> {
       const am = airmass(altMid)
       airmassMid = am === null ? null : roundTo(am, 3)
       moonSep = roundTo(moonSeparationDeg(target, new Date(midMs), site), 1)
+      // A planet's brightness swings by whole magnitudes along its orbit, so it
+      // is computed for the middle of this block; a catalog object carries its
+      // fixed value. "How faint is it" is the question a person asks next.
+      const mag = apparentMagnitude(target, new Date(midMs))
+      magnitude = mag === null ? null : roundTo(mag, 2)
+      // Transit over the WHOLE night, not over the block: knowing that M31 peaks
+      // an hour after the slot it was given is what makes a plan worth editing.
+      const visibility = computeVisibility(target, night, site, {
+        minAltDeg: 0,
+        interval: { startUtc: night.windowStartUtc, endUtc: night.windowEndUtc },
+        minMoonSepDeg: 0,
+        minWindowMinutes: 0,
+      })
+      transitUtc = visibility.transitUtc
+      transitAltDeg =
+        visibility.transitAltDeg === null ? null : roundTo(visibility.transitAltDeg, 2)
     }
 
     return {
       ...planItemView(item, site.timeZone),
       type: target?.type ?? 'other',
+      magnitude,
+      transit: stamp(transitUtc, site.timeZone),
+      transit_altitude_deg: transitAltDeg,
       altitude_start_deg: altStart,
       altitude_end_deg: altEnd,
       peak_altitude_deg: peak,
@@ -288,6 +322,16 @@ function run(): ToolResult<GetCurrentPlanData> {
     `Plan for the night of ${state.nightOf} at ${site.name}: ${items.length} item${items.length === 1 ? '' : 's'}, ` +
     `${roundTo(totalMinutes / 60, 1)} h from ${span}, ${tail}.`
 
+  const caveats: string[] = []
+  // The plan was scheduled for one sky; the app may now be showing another.
+  // Every time below is still the time that was committed, so say so before the
+  // agent reads the altitudes as if they were tonight's.
+  const staleMessage = planStaleMessage(state)
+  if (staleMessage) caveats.push(staleMessage)
+  if (pending > 0) {
+    caveats.push(`${pending} proposal(s) are still waiting for the person's review.`)
+  }
+
   return ok(
     summary,
     {
@@ -298,19 +342,14 @@ function run(): ToolResult<GetCurrentPlanData> {
       proposals_pending: pending,
     },
     site,
-    {
-      caveats:
-        pending > 0
-          ? [`${pending} proposal(s) are still waiting for the person's review.`]
-          : [],
-    },
+    { caveats },
   )
 }
 
 export const getCurrentPlanTool: ModelContextToolDefinition = defineTool<GetCurrentPlanData>({
   name: 'get_current_plan',
   title: 'Read the committed observing plan',
-  description: `Use this to read the committed observing plan: ordered items with target, scheduled window (UTC and local), altitude at start and end, peak altitude, airmass and Moon separation at mid-block, notes and who added them (person or agent), plus warnings (block outside astronomical darkness, target below the minimum altitude during the block, overlaps) and the status of pending proposals. Read-only.`,
+  description: `Use this to read the committed observing plan: ordered items with target, scheduled window (UTC and local), apparent magnitude, transit time and transit altitude for the night, altitude at start and end, peak altitude, airmass and Moon separation at mid-block, notes and who added them (person or agent), plus warnings (block outside astronomical darkness, target below the minimum altitude during the block, overlaps) and the status of pending proposals. If the app has moved to another site or night since the plan was committed, a caveat says so: the times below are the ones that were committed, not recomputed for the new sky. Read-only.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   run,

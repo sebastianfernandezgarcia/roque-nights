@@ -185,11 +185,28 @@ describe('clear_plan with undo_token', () => {
     expect(store.getState().plan).toEqual([])
   })
 
-  it('undoes before it confirms: a token wins over confirm', async () => {
+  it('refuses confirm:true and undo_token in the same call instead of guessing', async () => {
+    seedPlan()
+    const cleared = expectOk(await run({ confirm: true }))
+    const token = cleared.data.undo_token as string
+
+    const error = expectFail(await run({ undo_token: token, confirm: true }))
+    expect(error.error.code).toBe('invalid_input')
+    expect(error.error.message).toBe(
+      'Pass either confirm:true to clear or undo_token to restore, not both.',
+    )
+    expect(error.error.hint).toBe('Example: { "undo_token": "<token>" }')
+    // Nothing happened either way: the token is still spendable on its own.
+    expect(store.getState().plan).toEqual([])
+    expect(expectOk(await run({ undo_token: token })).data.action).toBe('restored')
+    expect(store.getState().plan).toHaveLength(2)
+  })
+
+  it('still restores with a token alone, and confirm:false is not a contradiction', async () => {
     seedPlan()
     const cleared = expectOk(await run({ confirm: true }))
     const result = expectOk(
-      await run({ undo_token: cleared.data.undo_token as string, confirm: true }),
+      await run({ undo_token: cleared.data.undo_token as string, confirm: false }),
     )
     expect(result.data.action).toBe('restored')
     expect(store.getState().plan).toHaveLength(2)

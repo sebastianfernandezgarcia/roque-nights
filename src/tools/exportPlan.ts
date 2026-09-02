@@ -13,6 +13,7 @@ import { toCsv, toIcs, toObservingPlanV1, type ObservingPlanV1 } from '../plan/s
 import { SHARE_URL_WARN_LENGTH, buildShareUrl } from '../plan/shareUrl'
 import { store } from '../state/store'
 import { defineTool, fail, ok, type ToolResult } from './envelope'
+import { PLAN_STALE_HINT, planStaleMessage } from './planStale'
 
 export type ExportFormat = 'json' | 'ics' | 'csv'
 
@@ -93,6 +94,13 @@ function run(input: Record<string, unknown>): ToolResult<ExportPlanData> {
     return fail('empty_plan', 'The plan is empty, so there is nothing to export.', EXPORT_HINT)
   }
 
+  // A plan scheduled for another sky exports as a document full of times that
+  // are quietly wrong, which is worse than no document at all: every block in it
+  // was placed against a darkness window and a set of altitudes that no longer
+  // apply. The person decides, not the agent and not the exporter.
+  const staleMessage = planStaleMessage(state)
+  if (staleMessage) return fail('plan_stale', staleMessage, PLAN_STALE_HINT)
+
   const caveats: string[] = []
   let darkness: { startUtc: string | null; endUtc: string | null } = { startUtc: null, endUtc: null }
   try {
@@ -147,7 +155,7 @@ export const exportPlanTool = defineTool<ExportPlanData>({
   name: 'export_plan',
   title: 'Export the plan as JSON, calendar or CSV',
   description:
-    'Use this to export the committed plan as a portable document: "json" (the open observing-plan.v1 schema published at /schemas/observing-plan.v1.json; includes site, night and darkness so another observer can import and revalidate it for their own sky), "ics" (calendar events in UTC) or "csv". Also returns a share URL of this app that carries the whole plan; anyone opening it gets the plan revalidated for their site. The person can download the same files from the Plan panel.',
+    'Use this to export the committed plan as a portable document: "json" (the open observing-plan.v1 schema published at /schemas/observing-plan.v1.json; includes site, night and darkness so another observer can import and revalidate it for their own sky), "ics" (calendar events in UTC) or "csv". Also returns a share URL of this app that carries the whole plan; anyone opening it gets the plan revalidated for their site. The person can download the same files from the Plan panel. If the app has moved to another site or another night since the plan was committed, this refuses with plan_stale instead of exporting times that are no longer true: the person has to click Revalidate plan or Keep anyway first.',
   inputSchema: {
     type: 'object',
     properties: {

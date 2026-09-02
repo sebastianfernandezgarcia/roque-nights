@@ -13,7 +13,7 @@
  * the browser (`APP_TOOLS`), so the activity-log wrapper is under test too: a
  * throw inside `instrument` would be just as fatal to the agent's turn.
  *
- * Every tool times 12 payloads. The payloads spray the union of all 14 input
+ * Every tool times 12 payloads. The payloads spray the union of all 15 input
  * schemas at once, so each tool receives a malformed version of its own fields
  * and ignores the rest, exactly as it would from a confused caller.
  */
@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetStore } from '../state/store'
 import { APP_TOOLS } from '../webmcp/contextual'
 
-/** Long enough to be abusive, short enough to keep 168 calls fast. */
+/** Long enough to be abusive, short enough to keep 180 calls fast. */
 const HUGE = 'M31 '.repeat(5_000)
 
 interface Payload {
@@ -238,8 +238,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('covers all 14 tools with 12 payloads each', () => {
-  expect(APP_TOOLS).toHaveLength(14)
+it('covers all 15 tools with 12 payloads each', () => {
+  expect(APP_TOOLS).toHaveLength(15)
   expect(PAYLOADS).toHaveLength(12)
 })
 

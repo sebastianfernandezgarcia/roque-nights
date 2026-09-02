@@ -24,7 +24,12 @@ function shortSiteName(name: string): string {
   return head === '' ? name : head
 }
 
-export function Header() {
+export interface HeaderProps {
+  /** Reopens the first-visit tour. The Header is the only permanent way back in. */
+  onOpenTour: () => void
+}
+
+export function Header({ onOpenTour }: HeaderProps) {
   const site = useRoqueStore((s) => s.site)
   const nightOf = useRoqueStore((s) => s.nightOf)
   const timeUtc = useRoqueStore((s) => s.timeUtc)
@@ -62,12 +67,17 @@ export function Header() {
     // min-h, never h: at 900 px and again above 1280 px the chips wrap onto a
     // second row, and a fixed height with overflow-hidden sliced them in half.
     <header className="flex min-h-14 w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-panel-edge bg-panel px-3 py-1.5">
-      <div className="flex shrink-0 items-baseline gap-3">
+      <div className="flex min-w-0 shrink-0 flex-wrap items-baseline gap-x-3">
         <span className="font-mono text-base font-bold tracking-[0.18em] whitespace-nowrap text-ember">
           ROQUE NIGHTS
         </span>
         <span className="hidden text-[11px] tracking-[0.2em] whitespace-nowrap text-faint uppercase xl:inline">
           Agent-native observing planner
+        </span>
+        {/* Below 960 px the tagline is gone and the chips have wrapped: this one
+            line is all a first-time visitor has to tell them what the page is. */}
+        <span className="font-mono text-[11px] tracking-[0.16em] text-faint uppercase lg:hidden">
+          Plan with your AI agent
         </span>
       </div>
 
@@ -123,6 +133,15 @@ export function Header() {
             Daytime
           </span>
         )}
+
+        <button
+          type="button"
+          className={`${CHIP} border-ember/50 text-ember hover:bg-ember/10`}
+          onClick={onOpenTour}
+          title="Four steps: what an agent can do on this page, and the prompt to start with."
+        >
+          <span className="text-[11px] tracking-[0.2em] uppercase">Try with your agent</span>
+        </button>
 
         <WebMCPBadge status={webmcp.status} toolCount={webmcp.toolCount} />
 

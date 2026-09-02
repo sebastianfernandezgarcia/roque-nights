@@ -5,21 +5,31 @@
  * path and one source of truth for the observing site. The form stays mounted
  * even while the dialog is closed: an agent must be able to find it in the DOM
  * at any moment.
+ *
+ * Three callers end in `applySitePayload` (src/site/applySitePayload.ts): this
+ * form's submit button, this form's `agentInvoked` handler, and the imperative
+ * tool `set_observing_site`. One validator, one set of error messages, one place
+ * that writes the store.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { isValidTimeZone } from '../astro/time'
 import { DARK_SKY_SITES, SITE_BY_ID, findSite } from '../data/sites'
+import {
+  CUSTOM_SITE_ID,
+  applySitePayload,
+  resolveSitePayload,
+} from '../site/applySitePayload'
 import { useRoqueStore } from '../state/store'
 import type { Site } from '../state/types'
 
-const TOOL_NAME = 'set_observing_site'
+// Distinct from the imperative tool: Chrome's engine rejects a duplicate tool name
+// ('InvalidStateError: Duplicate tool name'), and the declarative registration wins.
+const TOOL_NAME = 'set_observing_site_form'
 const TOOL_DESCRIPTION =
   'Change the observing site shown in the app. Pick a known dark-sky site by id or enter latitude, longitude (east positive), elevation in metres and an IANA time zone. The whole app (ephemeris, sky map, plan) recomputes for the new site.'
 
-const MIN_ELEVATION_M = -430
-const MAX_ELEVATION_M = 9000
 const MAX_NAME_LENGTH = 80
 
 const LABEL = 'text-[11px] uppercase tracking-[0.2em] text-faint'
@@ -46,7 +56,7 @@ interface FormValues {
   name: string
 }
 
-const CUSTOM = 'custom'
+const CUSTOM = CUSTOM_SITE_ID
 
 function valuesForSite(site: Site): FormValues {
   return {
@@ -59,65 +69,31 @@ function valuesForSite(site: Site): FormValues {
   }
 }
 
-function parseNumber(raw: string): number | null {
-  const trimmed = raw.trim()
-  if (trimmed === '') return null
-  const value = Number(trimmed)
-  return Number.isFinite(value) ? value : null
+/**
+ * The form's fields keyed exactly like an agent payload, which is also exactly
+ * what `new FormData(form)` produces from the field names.
+ */
+function payloadFromValues(values: FormValues): Record<string, string> {
+  return {
+    site_id: values.siteId,
+    latitude: values.latitude,
+    longitude: values.longitude,
+    elevation_m: values.elevationM,
+    time_zone: values.timeZone,
+    name: values.name,
+  }
 }
 
-/** Same rules as resolveSite in src/tools/resolveSite.ts, one message per failure. */
+/**
+ * Validate what the form holds, without applying it.
+ *
+ * A thin adapter over the shared validator: the form speaks in strings and one
+ * error line, `resolveSitePayload` speaks in a payload and a structured error,
+ * and the rules live in exactly one of the two.
+ */
 export function buildSiteFromValues(values: FormValues): { site: Site } | { error: string } {
-  const catalog = values.siteId && values.siteId !== CUSTOM ? SITE_BY_ID.get(values.siteId) : undefined
-  if (catalog) {
-    const { country: _country, kind: _kind, ...site } = catalog
-    return { site }
-  }
-
-  const latitude = parseNumber(values.latitude)
-  const longitude = parseNumber(values.longitude)
-  if (latitude === null || longitude === null) {
-    return { error: 'Latitude and longitude are both required for a custom site.' }
-  }
-  if (Math.abs(latitude) > 90) return { error: 'Latitude must be between -90 and 90 degrees.' }
-  if (Math.abs(longitude) > 180) {
-    return { error: 'Longitude must be between -180 and 180 degrees, east positive.' }
-  }
-
-  const elevationRaw = values.elevationM.trim()
-  let elevationM = 0
-  if (elevationRaw !== '') {
-    const parsed = parseNumber(elevationRaw)
-    if (parsed === null || parsed < MIN_ELEVATION_M || parsed > MAX_ELEVATION_M) {
-      return { error: `Elevation must be a number between ${MIN_ELEVATION_M} and ${MAX_ELEVATION_M} metres.` }
-    }
-    elevationM = parsed
-  }
-
-  const zoneRaw = values.timeZone.trim()
-  let timeZone: string | null = null
-  if (zoneRaw !== '') {
-    if (!isValidTimeZone(zoneRaw)) {
-      return { error: `"${zoneRaw}" is not an IANA time zone this browser knows, for example Atlantic/Canary.` }
-    }
-    timeZone = zoneRaw
-  }
-
-  const nameRaw = values.name.trim()
-  if (nameRaw.length > MAX_NAME_LENGTH) {
-    return { error: `Name must be at most ${MAX_NAME_LENGTH} characters.` }
-  }
-
-  return {
-    site: {
-      id: null,
-      name: nameRaw === '' ? `${latitude.toFixed(3)}, ${longitude.toFixed(3)}` : nameRaw,
-      latitude,
-      longitude,
-      elevationM,
-      timeZone,
-    },
-  }
+  const result = resolveSitePayload(payloadFromValues(values))
+  return result.ok ? { site: result.site } : { error: result.error.message }
 }
 
 export interface PayloadValues {
@@ -179,14 +155,8 @@ export function payloadFromForm(form: HTMLFormElement): Record<string, string> {
   return payload
 }
 
-function describeSite(site: Site): string {
-  const zone = site.timeZone ?? 'no time zone, local times will be UTC'
-  return `Site set to ${site.name} (${site.latitude.toFixed(3)}, ${site.longitude.toFixed(3)}, ${Math.round(site.elevationM)} m, ${zone}).`
-}
-
 export function SiteForm({ open, onClose }: { open: boolean; onClose: () => void }) {
   const site = useRoqueStore((s) => s.site)
-  const setSite = useRoqueStore((s) => s.setSite)
 
   const [values, setValues] = useState<FormValues>(() => valuesForSite(site))
   const [error, setError] = useState<string | null>(null)
@@ -249,20 +219,22 @@ export function SiteForm({ open, onClose }: { open: boolean; onClose: () => void
         return
       }
       setValues(next)
-      const result = buildSiteFromValues(next)
-      if ('error' in result) {
-        setError(result.error)
-        respond({ ok: false, error: { code: 'invalid_site', message: result.error } })
+      const result = applySitePayload(payloadFromValues(next), 'agent')
+      if (!result.ok) {
+        setError(result.error.message)
+        respond({ ok: false, error: result.error })
         return
       }
       setError(null)
-      setNotice(describeSite(result.site))
-      setSite(result.site, 'agent')
-      respond({ ok: true, summary: describeSite(result.site) })
+      setNotice(result.summary)
+      // Show the site that was actually applied, not the payload that asked for
+      // it: a catalog id brings its own name, elevation and zone.
+      setValues(valuesForSite(result.site))
+      respond({ ok: true, summary: result.summary })
     }
     form.addEventListener('agentInvoked', onAgentInvoked)
     return () => form.removeEventListener('agentInvoked', onAgentInvoked)
-  }, [site, setSite])
+  }, [site])
 
   const patch = (part: Partial<FormValues>) => setValues((v) => ({ ...v, ...part }))
 
@@ -289,13 +261,12 @@ export function SiteForm({ open, onClose }: { open: boolean; onClose: () => void
     // Read the DOM, not the `values` closure: the agent path reads the same
     // thing, so the two can never apply different sites from one form.
     const { values: next } = valuesFromPayload(payloadFromForm(event.currentTarget), values)
-    const result = buildSiteFromValues(next)
-    if ('error' in result) {
-      setError(result.error)
+    const result = applySitePayload(payloadFromValues(next), 'human')
+    if (!result.ok) {
+      setError(result.error.message)
       return
     }
     setError(null)
-    setSite(result.site, 'human')
     onClose()
   }
 

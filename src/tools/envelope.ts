@@ -1,7 +1,7 @@
 /**
  * The shape every Roque Nights tool returns, and the wrapper that guarantees it.
  *
- * One envelope for all 14 tools:
+ * One envelope for all 15 tools:
  *  - `summary` is one quotable sentence the agent can read out loud;
  *  - `data` holds the numbers behind that sentence so a human can verify them;
  *  - `rejected` says what was left out and WHY (the most useful field of all);
@@ -51,6 +51,7 @@ export type ToolErrorCode =
   | 'confirmation_required'
   | 'nothing_to_undo'
   | 'empty_plan'
+  | 'plan_stale'
   | 'network_error'
   | 'aborted'
   | 'internal_error'

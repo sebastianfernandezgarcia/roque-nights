@@ -1,7 +1,7 @@
 /**
  * The tool catalogue and the live registration that follows the store.
  *
- * Roque Nights does not show an agent 14 tools at all times. Ten of them make
+ * Roque Nights does not show an agent 15 tools at all times. Eleven of them make
  * sense in an empty session; the three plan tools only exist while there IS a
  * plan, and `commit_proposal` only while a proposal is waiting for the person.
  * That is what `toolchange` is for, and it is honest here: the list an agent
@@ -45,6 +45,7 @@ import { modifyPlanTool } from '../tools/modifyPlan'
 import { pointSkyMapTool } from '../tools/pointSkyMap'
 import { proposePlanTool } from '../tools/proposePlan'
 import { rankNightsTool } from '../tools/rankNights'
+import { setObservingSiteTool } from '../tools/setObservingSite'
 import { setObservingTimeTool } from '../tools/setObservingTime'
 
 /** Which tools exist for a given state. Re-exported so callers need one import. */
@@ -56,7 +57,7 @@ export type { ContextualState }
 // an agent is told about and the tools actually registered are the same list.
 // ---------------------------------------------------------------------------
 
-/** Always registered: tools 1, 2, 3, 4, 5, 6, 7, 11, 13, 14 of docs/PLAN.md. */
+/** Always registered: tools 1, 2, 3, 4, 5, 6, 7, 11, 13, 14, 15 of docs/PLAN.md. */
 export const BASE_TOOLS: ModelContextToolDefinition[] = [
   getNightEphemerisTool,
   findObservableTargetsTool,
@@ -68,6 +69,7 @@ export const BASE_TOOLS: ModelContextToolDefinition[] = [
   importPlanTool,
   compareDarkSkySitesTool,
   clearPlanTool,
+  setObservingSiteTool,
 ]
 
 /** Registered while the committed plan has at least one item (tools 9, 10 and 12). */
@@ -80,7 +82,7 @@ export const PLAN_TOOLS: ModelContextToolDefinition[] = [
 /** Registered while a proposal is still pending (tool 8). */
 export const PROPOSAL_TOOLS: ModelContextToolDefinition[] = [commitProposalTool]
 
-/** The 14 raw declarations, in the numbering of docs/PLAN.md. */
+/** The 15 raw declarations, in the numbering of docs/PLAN.md. */
 const ALL_TOOLS: ModelContextToolDefinition[] = [
   getNightEphemerisTool,
   findObservableTargetsTool,
@@ -96,6 +98,7 @@ const ALL_TOOLS: ModelContextToolDefinition[] = [
   exportPlanTool,
   importPlanTool,
   compareDarkSkySitesTool,
+  setObservingSiteTool,
 ]
 
 // ---------------------------------------------------------------------------
@@ -224,7 +227,7 @@ function elapsedSince(startedAt: number): number {
 }
 
 /**
- * All 14 tools for the in-app harness, the audit script and the docs, already
+ * All 15 tools for the in-app harness, the audit script and the docs, already
  * instrumented: a manual call from the harness lands in the activity log
  * exactly like an agent call, which is what the harness is for when the browser
  * has no WebMCP engine. The group arrays above hold the raw declarations and
@@ -282,7 +285,7 @@ function sameNames(a: readonly string[], b: readonly string[]): boolean {
  * and unregisters the contextual tools it had registered.
  *
  * `baseNames` is what the caller actually managed to register; it defaults to
- * all ten, and the only reason to pass anything else is an engine that refused
+ * all eleven, and the only reason to pass anything else is an engine that refused
  * one of them, in which case the badge should not claim it exists.
  */
 export function startContextualSync(

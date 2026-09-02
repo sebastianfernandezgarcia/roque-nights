@@ -5,9 +5,13 @@ import { decodePlanFromHash } from '../plan/shareUrl'
 import { ROQUE_DE_LOS_MUCHACHOS } from '../state/store'
 import type { PlanItem } from '../state/types'
 import {
+  EMPTY_EXPORT_NOTE,
   EXPORT_FORMATS,
+  READY_EXPORT_NOTE,
+  STALE_EXPORT_NOTE,
   buildExportPayload,
   buildShareLink,
+  exportGate,
   planFilename,
 } from './ExportActions'
 
@@ -93,5 +97,32 @@ describe('buildShareLink', () => {
     expect(decoded?.items).toHaveLength(1)
     expect(decoded?.items[0].name).toBe('Andromeda Galaxy')
     expect(decoded?.site.name).toBe(ROQUE_DE_LOS_MUCHACHOS.name)
+  })
+})
+
+describe('exportGate', () => {
+  it('lets a plan built for this sky out of the browser', () => {
+    expect(exportGate({ empty: false, stale: false })).toEqual({
+      blocked: false,
+      note: READY_EXPORT_NOTE,
+      warning: false,
+    })
+  })
+
+  it('refuses to export a plan built for another sky, and says what to do first', () => {
+    const gate = exportGate({ empty: false, stale: true })
+    expect(gate.blocked).toBe(true)
+    expect(gate.warning).toBe(true)
+    expect(gate.note).toBe('Revalidate or keep the plan before exporting.')
+    expect(gate.note).toBe(STALE_EXPORT_NOTE)
+  })
+
+  it('puts the stale warning before the empty one: a stale plan is not empty', () => {
+    expect(exportGate({ empty: true, stale: true }).note).toBe(STALE_EXPORT_NOTE)
+    expect(exportGate({ empty: true, stale: false })).toEqual({
+      blocked: true,
+      note: EMPTY_EXPORT_NOTE,
+      warning: false,
+    })
   })
 })

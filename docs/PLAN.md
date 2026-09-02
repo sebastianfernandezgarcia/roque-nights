@@ -13,7 +13,7 @@ Salida del panel de diseño (3 diseñadores + juez adversarial, 31-ago-2026). Es
 
 Puntuación del juez adversarial (asumiendo buena ejecución): Leverage 9 · Execution 8 · Impact 7 · Creativity 8. Los arreglos de abajo van dirigidos a subir Impact y Creativity.
 
-## Las 14 tools (tope duro; ni una más)
+## Las 14 tools (tope duro; ni una más) + 1 excepción justificada el 2-sep
 
 | # | Tool | Annotations | Notas |
 |---|------|-------------|-------|
@@ -31,6 +31,7 @@ Puntuación del juez adversarial (asumiendo buena ejecución): Leverage 9 · Exe
 | 12 | `export_plan` | readOnly | .ics + CSV + **schema abierto `observing-plan.v1.json`** publicado en el propio sitio |
 | 13 | `import_plan` | — | **LA PALANCA MÁXIMA**: importa el plan de otro observador (URL) y lo REVALIDA para el cielo/latitud local devolviendo diff con motivos |
 | 14 | `compare_dark_sky_sites` | readOnly, **openWorld** | ~20 sitios Starlight del mundo + nubes de Open-Meteo en UNA petición multi-coordenada |
+| 15 | `set_observing_site` | idempotent, ¬destructive | **Añadida el 2-sep** tras la auditoría de Codex (P0.2): mover la app a otro sitio también por tool imperativa; comparte `applySitePayload()` con el form declarativo. Siempre registrada |
 
 **API declarativa (2 usos justificados)**: form de emplazamiento (`set_observing_site` vía `toolname`/`agentInvoked`/`respondWith`) y form de objetivo personalizado (stretch). Justificación para el README: el agente rellena el mismo form que el humano, misma validación, una sola fuente de verdad.
 
@@ -125,3 +126,7 @@ Weather → tool 14. Target visibility (alt/az, tránsito, airmass, separación 
 - **El plan es un timeline visual de la noche** (altitud × tiempo: bandas de crepúsculo, interferencia lunar, bloques por objeto), no una lista.
 - **60 fps**: canvas 2D con capas cacheadas (estrellas se redibujan solo si cambia tiempo/vista); WebGL solo si el canvas no llega.
 - **Tiene que lucir igual en la ventana del navegador de ChatGPT** (~1100×750): layout mapa + columna lateral, sin depender de pantallas grandes; por debajo de 900 px apila.
+
+## Addendum 2-sep-2026 (mañana): última ronda tras la auditoría de Codex
+
+Codex auditó la app como juez (WebMCP 9/10). Alcance congelado a sus hallazgos: onboarding de 4 pasos en la primera visita + botón "Try with your agent"; panel "Agent tools" que lista las tools registradas con una frase humana y se ilumina cuando el agente las llama; `set_observing_time` con `time:"now"` = reloj real y cambio de noche; `set_observing_site` imperativa (tool 15) además del form; plan marcado como obsoleto al cambiar de sitio o noche (banner "This plan was built for a different sky", botón Revalidate, exportación bloqueada hasta revalidar o confirmar; `export_plan` devuelve `plan_stale`); sin pan en la vista de cielo completo (fov ≥ 150°: "Zoom in to drag"); badge "Built with Netlify" desactivado por API; `get_current_plan` con magnitud y tránsito; "best astronomical night" (sin meteo) en `rank_nights`; contradicciones de argumentos rechazadas con `invalid_input` y ejemplo exacto. Fuera de alcance: limpieza de capturas, bundle, warnings de lint, reescritura de historial.

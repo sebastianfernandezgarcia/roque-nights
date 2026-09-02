@@ -11,10 +11,17 @@ import {
   project,
   unproject,
 } from '../astro/sky'
-import type { SiteCoords } from '../astro/sky'
+import type { SiteCoords, SkyView } from '../astro/sky'
 import { buildScene } from './scene'
 import type { Scene } from './scene'
-import { dragToView, hitTest, trailingBurst, wheelToFov } from './interaction'
+import {
+  PAN_MIN_FOV_LOCK,
+  canPanAtFov,
+  dragToView,
+  hitTest,
+  trailingBurst,
+  wheelToFov,
+} from './interaction'
 
 const ROQUE: SiteCoords = {
   latitude: 28.7542,
@@ -113,11 +120,14 @@ describe('hitTest', () => {
   })
 })
 
+/** Zenith centred like the dome, but zoomed in far enough that panning is allowed. */
+const PANNABLE_ZENITH: SkyView = { centerAltDeg: 90, centerAzDeg: 0, fovDeg: 120 }
+
 describe('dragToView', () => {
-  const frame = makeFrame(DOME_VIEW, SIZE, SIZE)
+  const frame = makeFrame(PANNABLE_ZENITH, SIZE, SIZE)
 
   it('makes the sky follow the pointer', () => {
-    const start = { x: 400, y: 400, view: DOME_VIEW }
+    const start = { x: 400, y: 400, view: PANNABLE_ZENITH }
     const current = { x: 500, y: 400 }
     const grabbed = unproject(start.x, start.y, frame, SIZE, SIZE)!
     const under = unproject(current.x, current.y, frame, SIZE, SIZE)!
@@ -130,7 +140,7 @@ describe('dragToView', () => {
       altAzToVec(under.altDeg, under.azDeg),
     )
     expect(view.centerAltDeg).toBeCloseTo(90 - travelled, 1)
-    expect(view.fovDeg).toBe(DOME_VIEW.fovDeg)
+    expect(view.fovDeg).toBe(PANNABLE_ZENITH.fovDeg)
   })
 
   it('leaves the grabbed patch of sky under the pointer', () => {
@@ -158,19 +168,56 @@ describe('dragToView', () => {
   })
 
   it('does not move when the pointer does not', () => {
-    const start = { x: 300, y: 220, view: DOME_VIEW }
+    const start = { x: 300, y: 220, view: PANNABLE_ZENITH }
     const view = dragToView(start, { x: 300, y: 220 }, frame, SIZE, SIZE)
-    expect(view.centerAltDeg).toBeCloseTo(DOME_VIEW.centerAltDeg, 6)
-    expect(view.fovDeg).toBe(DOME_VIEW.fovDeg)
+    expect(view.centerAltDeg).toBeCloseTo(PANNABLE_ZENITH.centerAltDeg, 6)
+    expect(view.fovDeg).toBe(PANNABLE_ZENITH.fovDeg)
   })
 
   it('stays inside the clamped range', () => {
-    const start = { x: 400, y: 100, view: DOME_VIEW }
+    const start = { x: 400, y: 100, view: PANNABLE_ZENITH }
     const view = dragToView(start, { x: 400, y: 780 }, frame, SIZE, SIZE)
     expect(view.centerAltDeg).toBeGreaterThanOrEqual(-30)
     expect(view.centerAltDeg).toBeLessThanOrEqual(90)
     expect(view.centerAzDeg).toBeGreaterThanOrEqual(0)
     expect(view.centerAzDeg).toBeLessThan(360)
+  })
+})
+
+describe('the whole sky does not pan', () => {
+  it('canPanAtFov opens up just below the lock', () => {
+    expect(PAN_MIN_FOV_LOCK).toBe(150)
+    expect(canPanAtFov(PAN_MIN_FOV_LOCK - 0.1)).toBe(true)
+    expect(canPanAtFov(PAN_MIN_FOV_LOCK)).toBe(false)
+    expect(canPanAtFov(DOME_VIEW.fovDeg)).toBe(false)
+    expect(canPanAtFov(MAX_FOV)).toBe(false)
+    expect(canPanAtFov(MIN_FOV)).toBe(true)
+    expect(canPanAtFov(60)).toBe(true)
+    expect(canPanAtFov(Number.NaN)).toBe(false)
+  })
+
+  it('dragToView returns the dome untouched at the whole sky view', () => {
+    const domeFrame = makeFrame(DOME_VIEW, SIZE, SIZE)
+    const start = { x: 400, y: 400, view: DOME_VIEW }
+    // The horizontal drag that flattened the dome in the audit (07-after-horizontal-drag).
+    const view = dragToView(start, { x: 620, y: 400 }, domeFrame, SIZE, SIZE)
+    expect(view).toEqual({
+      centerAltDeg: DOME_VIEW.centerAltDeg,
+      centerAzDeg: DOME_VIEW.centerAzDeg,
+      fovDeg: DOME_VIEW.fovDeg,
+    })
+  })
+
+  it('locks at the threshold and pans one tenth of a degree below it', () => {
+    const locked: SkyView = { centerAltDeg: 90, centerAzDeg: 0, fovDeg: PAN_MIN_FOV_LOCK }
+    const lockedFrame = makeFrame(locked, SIZE, SIZE)
+    const held = dragToView({ x: 400, y: 400, view: locked }, { x: 560, y: 300 }, lockedFrame, SIZE, SIZE)
+    expect(held).toEqual(locked)
+
+    const free: SkyView = { ...locked, fovDeg: PAN_MIN_FOV_LOCK - 0.1 }
+    const freeFrame = makeFrame(free, SIZE, SIZE)
+    const moved = dragToView({ x: 400, y: 400, view: free }, { x: 560, y: 300 }, freeFrame, SIZE, SIZE)
+    expect(moved.centerAltDeg).toBeLessThan(89)
   })
 })
 

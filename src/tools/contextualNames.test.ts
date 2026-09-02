@@ -49,14 +49,16 @@ beforeEach(() => {
 })
 
 describe('tool name tables', () => {
-  it('adds up to the fourteen tools of the spec, with no repeats', () => {
+  it('adds up to the fifteen tools of the spec, with no repeats', () => {
     const all = [...BASE_TOOL_NAMES, ...PLAN_TOOL_NAMES, ...PROPOSAL_TOOL_NAMES]
-    expect(all).toHaveLength(14)
-    expect(new Set(all).size).toBe(14)
-    expect(BASE_TOOL_NAMES).toHaveLength(10)
+    expect(all).toHaveLength(15)
+    expect(new Set(all).size).toBe(15)
+    expect(BASE_TOOL_NAMES).toHaveLength(11)
     // clear_plan is base, not contextual: it hands out the undo token, so it
     // has to survive the clear that empties the plan.
     expect(BASE_TOOL_NAMES).toContain('clear_plan')
+    // Moving the app to another site never depends on there being a plan.
+    expect(BASE_TOOL_NAMES).toContain('set_observing_site')
     expect(PLAN_TOOL_NAMES).toEqual(['get_current_plan', 'modify_plan', 'export_plan'])
     expect(PROPOSAL_TOOL_NAMES).toEqual(['commit_proposal'])
   })
@@ -67,22 +69,22 @@ describe('contextualToolNames', () => {
     expect(hasPlan(EMPTY)).toBe(false)
     expect(hasPendingProposal(EMPTY)).toBe(false)
     expect(contextualToolNames(EMPTY)).toEqual([])
-    expect(currentToolNames(EMPTY)).toHaveLength(10)
+    expect(currentToolNames(EMPTY)).toHaveLength(11)
     expect(currentToolNames(EMPTY)).toContain('clear_plan')
   })
 
   it('adds the plan tools while a plan exists', () => {
     expect(contextualToolNames(WITH_PLAN)).toEqual([...PLAN_TOOL_NAMES])
-    expect(currentToolNames(WITH_PLAN)).toHaveLength(13)
+    expect(currentToolNames(WITH_PLAN)).toHaveLength(14)
   })
 
   it('adds commit_proposal while a proposal is pending', () => {
     expect(contextualToolNames(WITH_PROPOSAL)).toEqual(['commit_proposal'])
-    expect(currentToolNames(WITH_PROPOSAL)).toHaveLength(11)
+    expect(currentToolNames(WITH_PROPOSAL)).toHaveLength(12)
   })
 
   it('adds both when the app has a plan and a pending proposal', () => {
-    expect(currentToolNames(WITH_BOTH)).toHaveLength(14)
+    expect(currentToolNames(WITH_BOTH)).toHaveLength(15)
   })
 
   it('ignores proposals that are no longer pending', () => {

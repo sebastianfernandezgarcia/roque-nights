@@ -1,9 +1,9 @@
-// Browser-level audit of the 14 Roque Nights tools.
+// Browser-level audit of the 15 Roque Nights tools.
 //
 // Runs every tool against the PRODUCTION build in a real Chromium, in the order
 // a session actually happens: read-only tools first, then propose_plan ->
 // commit_proposal, then the contextual plan tools that only exist once there is
-// a plan (ten of the fourteen are registered for the life of the page; the four
+// a plan (eleven of the fifteen are registered for the life of the page; the four
 // contextual ones are get_current_plan, modify_plan, export_plan and
 // commit_proposal). Each result must carry a boolean `ok` AND match the `expect`
 // of its entry below; anything that throws, comes back without an `ok` or
@@ -58,6 +58,11 @@ const CALLS = [
   { name: 'get_current_plan', input: {}, expect: 'ok' },
   { name: 'modify_plan', input: { operations: [{ op: 'remove', target: 'M13' }] }, expect: 'ok' },
   { name: 'export_plan', input: { format: 'json' }, expect: 'ok' },
+  // Late on purpose: the app moves to the other side of the planet with a plan
+  // already committed, which is what marks that plan stale, and then comes back.
+  // Both calls must succeed; the staleness lives in the payload, not in an error.
+  { name: 'set_observing_site', input: { id: 'mauna-kea' }, expect: 'ok' },
+  { name: 'set_observing_site', input: { id: 'roque' }, expect: 'ok' },
   { name: 'import_plan', input: { source: 'M31, M45, M7' }, expect: 'ok' },
   // Base, not contextual: clear_plan hands out the undo token, so it stays
   // registered even with an empty plan. No `confirm` here on purpose: the

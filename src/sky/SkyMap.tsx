@@ -20,7 +20,7 @@ import { compassDirection } from '../astro/targets'
 import { formatInZone } from '../astro/time'
 import { store, useRoqueStore } from '../state/store'
 import { DEFAULT_ANIMATION_MS, reticlePhase, useAnimatedView } from './animate'
-import { dragToView, hitTest, trailingBurst, wheelToFov } from './interaction'
+import { canPanAtFov, dragToView, hitTest, trailingBurst, wheelToFov } from './interaction'
 import type { Hit } from './interaction'
 import { renderSky } from './render'
 import { buildScene } from './scene'
@@ -35,6 +35,9 @@ const FAVORITE_PULSE_MS = 400
 /** One activity entry per burst of wheel notches, not one per notch. */
 const ZOOM_LOG_MS = 400
 const MAX_STAR_MAG = 6
+/** How long the "zoom in to drag" hint stays on the dome, fade included. */
+const PAN_HINT_MS = 1200
+const PAN_HINT_FADE_MS = 300
 
 interface DragState {
   pointerId: number
@@ -45,7 +48,11 @@ interface DragState {
   width: number
   height: number
   moved: boolean
+  /** True once this gesture actually changed the view. */
+  panned: boolean
   handled: boolean
+  /** True once this gesture has been told the whole sky does not pan. */
+  hinted: boolean
 }
 
 interface HoverState {
@@ -99,6 +106,10 @@ export function SkyMap() {
   const [favoritePulse, setFavoritePulse] = useState<{ x: number; y: number; at: number } | null>(
     null,
   )
+  // The whole sky dome does not pan (see PAN_MIN_FOV_LOCK): a drag there says so
+  // instead of tipping the horizon off the canvas. `at` gives each attempt a
+  // fresh identity, so a second try restarts the fade.
+  const [panHint, setPanHint] = useState<{ at: number; fading: boolean } | null>(null)
 
   const animatedView = useAnimatedView(view)
 
@@ -278,6 +289,20 @@ export function SkyMap() {
     return () => clearTimeout(timer)
   }, [favoritePulse])
 
+  // Two beats: the hint sits still, then fades out and goes away.
+  useEffect(() => {
+    if (!panHint) return
+    if (!panHint.fading) {
+      const timer = setTimeout(
+        () => setPanHint((current) => (current && !current.fading ? { ...current, fading: true } : current)),
+        PAN_HINT_MS - PAN_HINT_FADE_MS,
+      )
+      return () => clearTimeout(timer)
+    }
+    const timer = setTimeout(() => setPanHint(null), PAN_HINT_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [panHint])
+
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0 && event.pointerType === 'mouse') return
     const current = sceneRef.current
@@ -293,7 +318,9 @@ export function SkyMap() {
       width: current.width,
       height: current.height,
       moved: false,
+      panned: false,
       handled: false,
+      hinted: false,
     }
     cancelLongPress()
     longPressRef.current = setTimeout(() => {
@@ -320,9 +347,19 @@ export function SkyMap() {
     drag.moved = true
     cancelLongPress()
     if (hover) setHover(null)
+    // At the whole sky there is nowhere to pan to: the dome stays on the zenith
+    // and the person is told how to get out of it. Wheel zoom still works.
+    if (!canPanAtFov(drag.view.fovDeg)) {
+      if (!drag.hinted) {
+        drag.hinted = true
+        setPanHint({ at: Date.now(), fading: false })
+      }
+      return
+    }
     const next = dragToView(drag, point, drag.frame, drag.width, drag.height)
     // Silent: a drag is one gesture, not sixty entries in the activity log.
     store.getState().setView(next, 'human', { silent: true })
+    drag.panned = true
   }
 
   const endDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -333,6 +370,9 @@ export function SkyMap() {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
     if (!drag || drag.handled) return
+
+    // A drag that was refused moved nothing: it is neither a pan to log nor a tap.
+    if (drag.moved && !drag.panned) return
 
     const state = store.getState()
     if (drag.moved) {
@@ -463,6 +503,17 @@ export function SkyMap() {
           className="pointer-events-none absolute h-8 w-8 animate-ping rounded-full border border-ember"
           style={{ left: favoritePulse.x - 16, top: favoritePulse.y - 16 }}
         />
+      ) : null}
+
+      {panHint ? (
+        <div
+          className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xs border border-panel-edge bg-panel/90 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-ember transition-opacity ${
+            panHint.fading ? 'opacity-0' : 'opacity-100'
+          }`}
+          style={{ transitionDuration: `${PAN_HINT_FADE_MS}ms` }}
+        >
+          Zoom in to drag the sky
+        </div>
       ) : null}
     </div>
   )

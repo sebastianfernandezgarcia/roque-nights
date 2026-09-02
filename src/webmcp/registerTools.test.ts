@@ -272,7 +272,7 @@ describe('registerWebMCPTools', () => {
     expect(store.getState().webmcp.toolCount).toBe(0)
   })
 
-  it('registers the 10 base tools and reports them in the store', async () => {
+  it('registers the 11 base tools and reports them in the store', async () => {
     const mc = new FakeModelContext()
     stubDocument(mc)
     await registerWebMCPTools()
@@ -302,7 +302,7 @@ describe('registerWebMCPTools', () => {
 
     store.getState().setPlan([M31], 'agent', 'test')
     expect(mc.names()).toEqual([...BASE_TOOL_NAMES, ...PLAN_TOOL_NAMES])
-    expect(store.getState().webmcp.toolNames).toHaveLength(13)
+    expect(store.getState().webmcp.toolNames).toHaveLength(14)
 
     store.getState().clearPlan('human')
     expect(mc.names()).toEqual([...BASE_TOOL_NAMES])
@@ -333,11 +333,11 @@ describe('registerWebMCPTools', () => {
     expect(mc.names()).toEqual(BASE_TOOL_NAMES.filter((name) => name !== 'rank_nights'))
     expect(store.getState().webmcp.status).toBe('registered')
     expect(store.getState().webmcp.toolNames).not.toContain('rank_nights')
-    expect(store.getState().webmcp.toolCount).toBe(9)
+    expect(store.getState().webmcp.toolCount).toBe(10)
 
     // The contextual sync still runs and still tells the truth.
     store.getState().setPlan([M31], 'agent', 'test')
-    expect(store.getState().webmcp.toolNames).toHaveLength(12)
+    expect(store.getState().webmcp.toolNames).toHaveLength(13)
     expect(store.getState().webmcp.toolNames).toEqual(
       expect.arrayContaining([...PLAN_TOOL_NAMES]),
     )

@@ -85,6 +85,17 @@ export interface ImportBannerState {
   from: string
 }
 
+/**
+ * The sky a committed plan was scheduled for. When the person or the agent moves the
+ * app to another site or night, the plan's times stop being true: the UI shows a
+ * revalidation banner and export refuses to run silently (see planStaleness).
+ */
+export interface PlanContext {
+  siteKey: string
+  siteName: string
+  nightOf: string
+}
+
 export interface WebMCPState {
   status: WebMCPStatus
   toolCount: number
@@ -110,6 +121,7 @@ export interface RoqueData {
   nightMode: boolean
   webmcp: WebMCPState
   importBanner: ImportBannerState | null
+  planContext: PlanContext | null
 }
 
 export interface RoqueState extends RoqueData {
@@ -146,6 +158,34 @@ export interface RoqueState extends RoqueData {
   toggleNightMode(source: ActorSource): void
   setWebMCPStatus(status: WebMCPStatus, toolNames: string[]): void
   setImportBanner(b: ImportBannerState | null): void
+  /** "Keep the plan anyway": re-stamps the plan with the current site and night. */
+  acknowledgePlanContext(): void
+}
+
+/** Identity of a site for plan staleness: coordinates to ~10 m, elevation ignored. */
+export function siteKeyOf(site: Pick<Site, 'latitude' | 'longitude'>): string {
+  return `${site.latitude.toFixed(4)}|${site.longitude.toFixed(4)}`
+}
+
+function planContextOf(s: Pick<RoqueData, 'site' | 'nightOf'>): PlanContext {
+  return { siteKey: siteKeyOf(s.site), siteName: s.site.name, nightOf: s.nightOf }
+}
+
+export type PlanStaleReason = 'site' | 'night' | 'site_and_night'
+
+/**
+ * Whether the committed plan was built for a different sky than the one shown now.
+ * Pure: safe for tools, selectors and tests. An empty plan is never stale.
+ */
+export function planStaleness(
+  s: Pick<RoqueData, 'plan' | 'planContext' | 'site' | 'nightOf'>,
+): { stale: boolean; reason: PlanStaleReason | null; builtFor: PlanContext | null } {
+  if (s.plan.length === 0 || !s.planContext) return { stale: false, reason: null, builtFor: s.planContext }
+  const siteChanged = s.planContext.siteKey !== siteKeyOf(s.site)
+  const nightChanged = s.planContext.nightOf !== s.nightOf
+  const reason: PlanStaleReason | null =
+    siteChanged && nightChanged ? 'site_and_night' : siteChanged ? 'site' : nightChanged ? 'night' : null
+  return { stale: reason !== null, reason, builtFor: s.planContext }
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +319,7 @@ export function createInitialState(): RoqueData {
     nightMode: true,
     webmcp: { status: 'pending', toolCount: 0, toolNames: [] },
     importBanner: null,
+    planContext: null,
   }
 }
 
@@ -391,9 +432,12 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
       const keep = opts.onlyAccepted ? decision === 'accepted' : decision !== 'rejected'
       ;(keep ? applied : skipped).push(item)
     }
-    set((s) => ({
+    set((s) => {
       // Merging by id keeps a second commit of the same proposal idempotent.
-      plan: proposal.replaceExisting ? sortPlan(applied) : mergePlan(s.plan, applied),
+      const plan = proposal.replaceExisting ? sortPlan(applied) : mergePlan(s.plan, applied)
+      return {
+      plan,
+      planContext: plan.length ? planContextOf(s) : null,
       proposals: s.proposals.map((p) =>
         p.id === proposalId ? { ...p, status: 'committed' as const } : p,
       ),
@@ -405,7 +449,8 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
         'plan_committed',
         `${applied.length} applied, ${skipped.length} skipped`,
       ),
-    }))
+      }
+    })
     return { applied, skipped }
   },
 
@@ -423,6 +468,7 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
   setPlan: (items, source, detail) =>
     set((s) => ({
       plan: sortPlan(items),
+      planContext: items.length ? planContextOf(s) : null,
       ...withLog(s, source, 'edit_plan', detail, { humanKind: 'edit_plan' }),
     })),
 
@@ -443,6 +489,7 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
           }
     set((s) => ({
       plan: [],
+      planContext: null,
       undo,
       pendingConfirmation:
         s.pendingConfirmation?.tool === 'clear_plan' ? null : s.pendingConfirmation,
@@ -464,6 +511,7 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
     }
     set((s) => ({
       plan: sortPlan(undo.plan),
+      planContext: undo.plan.length ? planContextOf(s) : null,
       undo: null,
       ...(source
         ? withLog(s, source, 'undo_clear', `${undo.plan.length} item${undo.plan.length === 1 ? '' : 's'} restored`)
@@ -525,6 +573,9 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
     set({ webmcp: { status, toolCount: toolNames.length, toolNames: [...toolNames] } }),
 
   setImportBanner: (b) => set({ importBanner: b }),
+
+  acknowledgePlanContext: () =>
+    set((s) => ({ planContext: s.plan.length ? planContextOf(s) : null })),
 }))
 
 export function useRoqueStore<T>(selector: (s: RoqueState) => T): T {

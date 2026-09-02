@@ -210,6 +210,26 @@ describe('point_sky_map', () => {
     expect(result.data.highlighted).toEqual([])
   })
 
+  it('refuses target together with reset:true, with the corrected call', async () => {
+    const error = expectFail(await run({ target: 'M31', reset: true }))
+    expect(error.error.code).toBe('invalid_input')
+    expect(error.error.message).toBe('Pass either target or reset:true, not both.')
+    expect(error.error.hint).toBe('Example: { "target": "M31", "fov_deg": 40 }')
+    // Refused means refused: the map did not move.
+    expect(store.getState().view.fovDeg).toBe(186)
+  })
+
+  it('refuses half a direction, whichever half it is', async () => {
+    for (const half of [{ altitude_deg: 45 }, { azimuth_deg: 180 }]) {
+      const error = expectFail(await run(half))
+      expect(error.error.code).toBe('invalid_input')
+      expect(error.error.message).toBe('Pass altitude_deg and azimuth_deg together.')
+      expect(error.error.hint).toBe(
+        'Example: { "altitude_deg": 45, "azimuth_deg": 180, "fov_deg": 60 }',
+      )
+    }
+  })
+
   it('resets to the whole sky dome', async () => {
     store.getState().setView({ centerAltDeg: 10, centerAzDeg: 90, fovDeg: 12 }, 'human')
     const result = expectOk(await run({ reset: true }))

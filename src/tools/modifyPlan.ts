@@ -67,7 +67,7 @@ const OPERATION_SCHEMA = {
       type: 'string',
       enum: ['add', 'remove', 'move', 'note', 'reorder'],
       description:
-        'Which edit to make, and the fields it needs: "add" needs target (start_utc, duration_minutes and note are optional; without start_utc the block is scheduled automatically inside the target visibility window); "remove" needs item_id OR target; "move" needs item_id OR target PLUS start_utc (duration_minutes optional, otherwise the block keeps its current length); "note" needs item_id OR target PLUS note (pass "" to clear it); "reorder" needs item_ids, at least two of them, in the order you want the objects observed.',
+        'Which edit to make, and the fields it needs: "add" needs target (start_utc, duration_minutes and note are optional; without start_utc the block is scheduled automatically inside the target visibility window); "remove" needs item_id OR target; "move" needs item_id OR target PLUS start_utc (duration_minutes optional, otherwise the block keeps its current length); "note" needs item_id OR target PLUS note (pass "" to clear it); "reorder" needs item_ids, at least two of them, in the order you want the objects observed, and RECOMPACTS their times: the listed items are rescheduled back to back from the earliest of their current starts, each keeping its own length and staying inside its own visibility window when possible (an item that cannot fit keeps its original time and comes back with the reason).',
     },
     target: {
       ...TARGET_REF_SCHEMA,
@@ -539,7 +539,7 @@ function run(input: Record<string, unknown>): ToolResult<ModifyPlanData> {
 export const modifyPlanTool: ModelContextToolDefinition = defineTool<ModifyPlanData>({
   name: 'modify_plan',
   title: 'Edit the committed plan in one batch',
-  description: `Use this to edit the committed plan directly in one batch: add targets (auto-scheduled or at a given start time), remove items, move an item, change durations or notes, or reorder. Prefer propose_plan when the person should review first. Returns the resulting plan and each operation's outcome, including failures with reasons. NOT idempotent: sending the same "add" twice leaves two blocks on the same target, so check get_current_plan before retrying. Only available once a plan exists.`,
+  description: `Use this to edit the committed plan directly in one batch: add targets (auto-scheduled or at a given start time), remove items, move an item, change durations or notes, or reorder. "reorder" does not only relabel the order: it RECOMPACTS the listed items back to back from the earliest of their current starts, each inside its own visibility window when possible, and reports any item that had to keep its original time. Prefer propose_plan when the person should review first. Returns the resulting plan and each operation's outcome, including failures with reasons. NOT idempotent: sending the same "add" twice leaves two blocks on the same target, so check get_current_plan before retrying. Only available once a plan exists.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,

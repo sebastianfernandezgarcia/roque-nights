@@ -64,8 +64,19 @@ function run(input: Record<string, unknown>): ToolResult<ClearPlanData> {
     return fail('invalid_input', 'confirm must be true or false.')
   }
 
+  const hasToken = typeof rawToken === 'string' && rawToken.trim() !== ''
+  // Deleting and restoring in one call is two opposite intentions: doing either
+  // one silently would be a coin toss with the person's plan.
+  if (hasToken && input.confirm === true) {
+    return fail(
+      'invalid_input',
+      'Pass either confirm:true to clear or undo_token to restore, not both.',
+      'Example: { "undo_token": "<token>" }',
+    )
+  }
+
   // --- branch 1: undo -------------------------------------------------------
-  if (typeof rawToken === 'string' && rawToken.trim() !== '') {
+  if (hasToken) {
     const before = store.getState()
     const restored = before.undoClear(rawToken, 'agent')
     if (!restored) {
@@ -136,7 +147,7 @@ function run(input: Record<string, unknown>): ToolResult<ClearPlanData> {
 export const clearPlanTool: ModelContextToolDefinition = defineTool<ClearPlanData>({
   name: 'clear_plan',
   title: 'Delete the whole plan (destructive)',
-  description: `Use this to delete the whole committed plan. DESTRUCTIVE: requires confirm:true. Without confirm nothing is deleted; instead the app shows the person a confirmation banner and this returns confirmation_required. On success returns an undo_token valid for 5 minutes; call clear_plan again with { undo_token } to restore the plan. Stays registered when the plan is empty so the undo is always reachable.`,
+  description: `Use this to delete the whole committed plan. DESTRUCTIVE: requires confirm:true. Without confirm nothing is deleted; instead the app shows the person a confirmation banner and this returns confirmation_required. On success returns an undo_token valid for 5 minutes; call clear_plan again with { undo_token } to restore the plan. confirm:true and undo_token in the same call are opposite intentions and come back as invalid_input. Stays registered when the plan is empty so the undo is always reachable.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,

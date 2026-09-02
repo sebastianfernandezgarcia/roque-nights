@@ -9,10 +9,12 @@ import {
   createInitialState,
   observingNightIn,
   planIntervals,
+  planStaleness,
   resetStore,
+  siteKeyOf,
   store,
 } from './store'
-import type { PlanItem, Proposal } from './types'
+import type { PlanItem, Proposal, Site } from './types'
 
 const s = () => store.getState()
 
@@ -485,5 +487,137 @@ describe('chrome: night mode, WebMCP status, banners', () => {
     expect(s().importBanner).toMatchObject({ observableCount: 3, totalCount: 5 })
     s().setImportBanner(null)
     expect(s().importBanner).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A committed plan belongs to one sky. These tests pin the stamp the plan
+// carries (planContext), the moment it stops being true (planStaleness) and the
+// "keep it anyway" escape hatch (acknowledgePlanContext).
+// ---------------------------------------------------------------------------
+
+const MAUNA_KEA: Site = {
+  id: 'mauna-kea',
+  name: 'Mauna Kea, Hawaii',
+  latitude: 19.8207,
+  longitude: -155.4681,
+  elevationM: 4205,
+  timeZone: 'Pacific/Honolulu',
+}
+
+describe('plan context', () => {
+  it('setPlan stamps the site and the night the plan was built for', () => {
+    s().setNightOf('2026-09-13', 'human')
+    s().setPlan([planItem('a', '2026-09-13T22:00:00Z', '2026-09-13T22:45:00Z')], 'agent', 'seed')
+    expect(s().planContext).toEqual({
+      siteKey: siteKeyOf(ROQUE_DE_LOS_MUCHACHOS),
+      siteName: ROQUE_DE_LOS_MUCHACHOS.name,
+      nightOf: '2026-09-13',
+    })
+  })
+
+  it('commitProposal stamps it too', () => {
+    s().setNightOf('2026-09-13', 'human')
+    const p = addThreeItemProposal()
+    s().commitProposal(p.id, { onlyAccepted: false }, 'human')
+    expect(s().plan).toHaveLength(3)
+    expect(s().planContext).toMatchObject({
+      siteName: ROQUE_DE_LOS_MUCHACHOS.name,
+      nightOf: '2026-09-13',
+    })
+  })
+
+  it('setPlan with no items leaves no stamp behind', () => {
+    s().setPlan([planItem('a', '2026-09-13T22:00:00Z', '2026-09-13T22:45:00Z')], 'agent', 'seed')
+    s().setPlan([], 'agent', 'emptied')
+    expect(s().planContext).toBeNull()
+  })
+
+  it('clearPlan drops the stamp and undoClear puts one back', () => {
+    s().setPlan([planItem('a', '2026-09-13T22:00:00Z', '2026-09-13T22:45:00Z')], 'agent', 'seed')
+    const token = s().clearPlan('human')
+    expect(s().planContext).toBeNull()
+
+    expect(s().undoClear(token, 'human')).toBe(true)
+    expect(s().plan).toHaveLength(1)
+    expect(s().planContext).toMatchObject({ siteName: ROQUE_DE_LOS_MUCHACHOS.name })
+  })
+
+  it('undoing an empty clear restores no stamp', () => {
+    const token = s().clearPlan('human')
+    expect(s().undoClear(token, 'human')).toBe(true)
+    expect(s().plan).toEqual([])
+    expect(s().planContext).toBeNull()
+  })
+})
+
+describe('planStaleness', () => {
+  beforeEach(() => {
+    s().setNightOf('2026-09-13', 'human')
+    s().setPlan([planItem('a', '2026-09-13T22:00:00Z', '2026-09-13T22:45:00Z')], 'agent', 'seed')
+  })
+
+  it('is quiet while the sky has not moved', () => {
+    expect(planStaleness(s())).toEqual({
+      stale: false,
+      reason: null,
+      builtFor: s().planContext,
+    })
+  })
+
+  it('reports the site when only the site changed', () => {
+    s().setSite(MAUNA_KEA, 'human')
+    const staleness = planStaleness(s())
+    expect(staleness.stale).toBe(true)
+    expect(staleness.reason).toBe('site')
+    expect(staleness.builtFor).toMatchObject({ siteName: ROQUE_DE_LOS_MUCHACHOS.name, nightOf: '2026-09-13' })
+  })
+
+  it('reports the night when only the night changed', () => {
+    s().setNightOf('2026-09-20', 'human')
+    expect(planStaleness(s())).toMatchObject({ stale: true, reason: 'night' })
+  })
+
+  it('reports both when both changed', () => {
+    s().setSite(MAUNA_KEA, 'human')
+    s().setNightOf('2026-09-20', 'human')
+    expect(planStaleness(s())).toMatchObject({ stale: true, reason: 'site_and_night' })
+  })
+
+  it('ignores a site that is the same place under another name', () => {
+    s().setSite({ ...ROQUE_DE_LOS_MUCHACHOS, id: null, name: '28.754, -17.885' }, 'human')
+    expect(planStaleness(s()).stale).toBe(false)
+  })
+
+  it('never calls an empty plan stale', () => {
+    s().setPlan([], 'agent', 'emptied')
+    s().setSite(MAUNA_KEA, 'human')
+    expect(planStaleness(s())).toEqual({ stale: false, reason: null, builtFor: null })
+  })
+
+  it('acknowledgePlanContext keeps the plan and re-stamps it for the sky on screen', () => {
+    s().setSite(MAUNA_KEA, 'human')
+    s().setNightOf('2026-09-20', 'human')
+    expect(planStaleness(s()).stale).toBe(true)
+
+    s().acknowledgePlanContext()
+
+    expect(s().plan).toHaveLength(1)
+    expect(s().planContext).toEqual({
+      siteKey: siteKeyOf(MAUNA_KEA),
+      siteName: MAUNA_KEA.name,
+      nightOf: '2026-09-20',
+    })
+    expect(planStaleness(s()).stale).toBe(false)
+  })
+})
+
+describe('siteKeyOf', () => {
+  it('is the coordinates to four decimals, so a rename is not a move', () => {
+    expect(siteKeyOf(ROQUE_DE_LOS_MUCHACHOS)).toBe('28.7542|-17.8851')
+    expect(siteKeyOf({ latitude: 28.75421, longitude: -17.88514 })).toBe(
+      siteKeyOf(ROQUE_DE_LOS_MUCHACHOS),
+    )
+    expect(siteKeyOf(MAUNA_KEA)).not.toBe(siteKeyOf(ROQUE_DE_LOS_MUCHACHOS))
   })
 })

@@ -2,7 +2,7 @@ import { Ajv } from 'ajv'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { getNight } from '../astro/cache'
-import { ROQUE_DE_LOS_MUCHACHOS, resetStore, store } from '../state/store'
+import { ROQUE_DE_LOS_MUCHACHOS, observingNightIn, resetStore, store } from '../state/store'
 import type { Site } from '../state/types'
 import type { ToolError, ToolOk } from './envelope'
 import { setObservingTimeTool } from './setObservingTime'
@@ -193,15 +193,31 @@ describe('set_observing_time', () => {
     expect(result.summary).not.toMatch(/\d{2}T\d{2}/)
   })
 
-  it('parks "now" in the middle of a night the real clock is not in', async () => {
+  it('"now" is the real clock, and moves the app to the night that contains it', async () => {
+    const before = Date.now()
     const result = expectOk(await run({ date: '2026-09-12', time: 'now' }))
-    const night = getNight('2026-09-12', ROQUE_DE_LOS_MUCHACHOS)
     const at = Date.parse(result.data.time.utc as string)
+    const realNight = observingNightIn(ROQUE_DE_LOS_MUCHACHOS.timeZone)
 
-    expect(store.getState().nightOf).toBe('2026-09-12')
-    expect(at).toBeGreaterThanOrEqual(Date.parse(night.windowStartUtc))
-    expect(at).toBeLessThanOrEqual(Date.parse(night.windowEndUtc))
-    expect(result.caveats.join(' ')).toContain('real clock')
+    // The slider is on the real clock, not on the middle of a night nobody is in.
+    expect(at).toBeGreaterThanOrEqual(before)
+    expect(at).toBeLessThanOrEqual(Date.now())
+    expect(result.data.night_of).toBe(realNight)
+    expect(store.getState().nightOf).toBe(realNight)
+    expect(result.caveats.join(' ')).toContain(
+      `so the app moved to the night of ${realNight}`,
+    )
+    expect(result.caveats.join(' ')).toContain('The real clock is')
+  })
+
+  it('"now" leaves the selected night alone when the real clock is already in it', async () => {
+    const realNight = observingNightIn(ROQUE_DE_LOS_MUCHACHOS.timeZone)
+    store.setState({ nightOf: realNight })
+    const result = expectOk(await run({ time: 'now' }))
+
+    expect(result.data.night_of).toBe(realNight)
+    expect(store.getState().nightOf).toBe(realNight)
+    expect(result.caveats).toEqual([])
   })
 
   it('refuses an impossible calendar date without touching the app', async () => {
@@ -217,8 +233,15 @@ describe('set_observing_time', () => {
     expect(store.getState().timeUtc).toBe(AT)
   })
 
-  it('refuses a call with neither time nor date', async () => {
-    expect(expectFail(await run({})).error.code).toBe('invalid_input')
+  it('refuses a call with neither time nor date, and shows a corrected one', async () => {
+    const error = expectFail(await run({}))
+    expect(error.error.code).toBe('invalid_input')
+    expect(error.error.message).toBe('set_observing_time needs time, date, or both.')
+    expect(error.error.hint).toBe(
+      'Example: { "time": "midnight" } or { "date": "2026-09-12", "time": "darkness_start" }.',
+    )
+    expect(store.getState().timeUtc).toBe(AT)
+    expect(store.getState().nightOf).toBe(NIGHT_OF)
   })
 
   it('says when a keyword does not happen on that night at that latitude', async () => {

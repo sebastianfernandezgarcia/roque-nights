@@ -105,8 +105,35 @@ body {
   animation: pulse-ring 900ms cubic-bezier(0.33, 1, 0.68, 1) 1;
 }
 
+/**
+ * One row of the agent tools panel, lighting up because the agent just called
+ * that tool. Same keyframe as the activity log, a touch shorter: the tool list
+ * is scanned, not read.
+ */
+.agent-flash-row {
+  animation: agent-flash 1200ms ease-out 1;
+}
+
+/** The tour, arriving. Short and small: it sits on top of the whole instrument. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-in {
+  animation: modal-in 160ms ease-out 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-flash,
+  .agent-flash-row,
+  .modal-in,
   .pulse-ring {
     animation: none;
   }

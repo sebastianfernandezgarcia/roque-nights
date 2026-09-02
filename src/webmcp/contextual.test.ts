@@ -106,9 +106,9 @@ beforeEach(() => {
 })
 
 describe('tool groups', () => {
-  it('registers the 10 tools that make sense with an empty session', () => {
+  it('registers the 11 tools that make sense with an empty session', () => {
     expect(BASE_TOOLS.map((tool) => tool.name)).toEqual([...BASE_TOOL_NAMES])
-    expect(BASE_TOOLS).toHaveLength(10)
+    expect(BASE_TOOLS).toHaveLength(11)
     // clear_plan is base so the undo it hands out is still callable afterwards.
     expect(BASE_TOOLS.map((tool) => tool.name)).toContain('clear_plan')
   })
@@ -118,7 +118,7 @@ describe('tool groups', () => {
     expect(PROPOSAL_TOOLS.map((tool) => tool.name)).toEqual([...PROPOSAL_TOOL_NAMES])
   })
 
-  it('exposes all 14 tools, once each, in the numbering of the plan', () => {
+  it('exposes all 15 tools, once each, in the numbering of the plan', () => {
     expect(APP_TOOLS.map((tool) => tool.name)).toEqual([
       'get_night_ephemeris',
       'find_observable_targets',
@@ -134,8 +134,9 @@ describe('tool groups', () => {
       'export_plan',
       'import_plan',
       'compare_dark_sky_sites',
+      'set_observing_site',
     ])
-    expect(new Set(APP_TOOLS.map((tool) => tool.name)).size).toBe(14)
+    expect(new Set(APP_TOOLS.map((tool) => tool.name)).size).toBe(15)
     expect(new Set(APP_TOOLS.map((tool) => tool.name))).toEqual(
       new Set([...BASE_TOOLS, ...PLAN_TOOLS, ...PROPOSAL_TOOLS].map((tool) => tool.name)),
     )
@@ -166,13 +167,13 @@ describe('tool groups', () => {
 describe('currentToolNames', () => {
   it('lists only the base tools for an empty session', () => {
     expect(currentToolNames(store.getState())).toEqual([...BASE_TOOL_NAMES])
-    expect(currentToolNames(store.getState())).toHaveLength(10)
+    expect(currentToolNames(store.getState())).toHaveLength(11)
   })
 
   it('adds the plan tools once the plan has items', () => {
     store.getState().setPlan([M31], 'agent', 'test')
     const names = currentToolNames(store.getState())
-    expect(names).toHaveLength(13)
+    expect(names).toHaveLength(14)
     expect(names).toContain('modify_plan')
     expect(names).not.toContain('commit_proposal')
   })
@@ -180,11 +181,11 @@ describe('currentToolNames', () => {
   it('adds commit_proposal while a proposal is pending', () => {
     addPendingProposal()
     const names = currentToolNames(store.getState())
-    expect(names).toHaveLength(11)
+    expect(names).toHaveLength(12)
     expect(names).toContain('commit_proposal')
   })
 
-  it('lists all 14 with both a plan and a pending proposal', () => {
+  it('lists all 15 with both a plan and a pending proposal', () => {
     store.getState().setPlan([M31], 'agent', 'test')
     addPendingProposal()
     expect(currentToolNames(store.getState()).slice().sort()).toEqual(
@@ -211,13 +212,13 @@ describe('startContextualSync', () => {
   it('registers nothing extra for an empty session but reports the base names', () => {
     expect(mc.names()).toEqual([])
     expect(store.getState().webmcp.toolNames).toEqual([...BASE_TOOL_NAMES])
-    expect(store.getState().webmcp.toolCount).toBe(10)
+    expect(store.getState().webmcp.toolCount).toBe(11)
   })
 
   it('registers the plan tools when the plan gets items and drops them when it is cleared', () => {
     store.getState().setPlan([M31], 'agent', 'test')
     expect(mc.names()).toEqual([...PLAN_TOOL_NAMES])
-    expect(store.getState().webmcp.toolNames).toHaveLength(13)
+    expect(store.getState().webmcp.toolNames).toHaveLength(14)
 
     store.getState().clearPlan('human')
     expect(mc.names()).toEqual([])
@@ -285,7 +286,7 @@ describe('startContextualSync unregistration paths', () => {
     // re-registration after a new plan does not duplicate anything.
     expect(store.getState().webmcp.toolNames).toEqual([...BASE_TOOL_NAMES])
     store.getState().setPlan([M31], 'agent', 'test')
-    expect(store.getState().webmcp.toolNames).toHaveLength(13)
+    expect(store.getState().webmcp.toolNames).toHaveLength(14)
     stop()
   })
 

@@ -3,10 +3,19 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { parseObservingPlanV1 } from '../plan/serialize'
 import { decodePlanFromHash } from '../plan/shareUrl'
-import { resetStore, store } from '../state/store'
-import type { PlanItem } from '../state/types'
+import { ROQUE_DE_LOS_MUCHACHOS, resetStore, store } from '../state/store'
+import type { PlanItem, Site } from '../state/types'
 import type { ToolError, ToolOk } from './envelope'
 import { exportPlanTool, type ExportPlanData } from './exportPlan'
+
+const MAUNA_KEA: Site = {
+  id: 'mauna-kea',
+  name: 'Mauna Kea, Hawaii',
+  latitude: 19.8207,
+  longitude: -155.4681,
+  elevationM: 4205,
+  timeZone: 'Pacific/Honolulu',
+}
 
 const PLAN: PlanItem[] = [
   {
@@ -80,6 +89,40 @@ describe('export_plan', () => {
     const error = asFail(await run())
     expect(error.error.code).toBe('empty_plan')
     expect(error.error.hint).toBeTruthy()
+  })
+
+  it('refuses a plan built for another site until the person decides', async () => {
+    // A plan the person actually committed carries the sky it was built for.
+    store.getState().setPlan(PLAN, 'human', 'test plan')
+    store.getState().setSite(MAUNA_KEA, 'agent')
+
+    const error = asFail(await run())
+    expect(error.error.code).toBe('plan_stale')
+    expect(error.error.message).toBe(
+      `The plan was built for ${ROQUE_DE_LOS_MUCHACHOS.name}, night of 2026-09-12, ` +
+        `and the app now shows ${MAUNA_KEA.name}, night of 2026-09-12.`,
+    )
+    expect(error.error.hint).toBe(
+      'Ask the person to click Revalidate plan or Keep anyway in the Plan panel, then export again.',
+    )
+  })
+
+  it('refuses a plan built for another night too', async () => {
+    store.getState().setPlan(PLAN, 'human', 'test plan')
+    store.getState().setNightOf('2026-09-13', 'agent')
+    const error = asFail(await run())
+    expect(error.error.code).toBe('plan_stale')
+    expect(error.error.message).toContain('night of 2026-09-13')
+  })
+
+  it('exports again once the person keeps the plan anyway', async () => {
+    store.getState().setPlan(PLAN, 'human', 'test plan')
+    store.getState().setSite(MAUNA_KEA, 'agent')
+    expect(asFail(await run()).error.code).toBe('plan_stale')
+
+    store.getState().acknowledgePlanContext()
+    const result = asOk(await run())
+    expect(result.data.item_count).toBe(2)
   })
 
   it('exports the open JSON document by default', async () => {

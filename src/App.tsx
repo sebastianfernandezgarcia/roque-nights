@@ -10,7 +10,7 @@
  * from 960 px up, one column with a square dome below that.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { SkyMap } from './sky/SkyMap'
 import { store } from './state/store'
@@ -19,12 +19,16 @@ import type { ToolResult } from './tools/envelope'
 import { PLAN_HASH_PREFIX } from './plan/shareUrl'
 import { ActivityLog } from './ui/ActivityLog'
 import { AgentHarness } from './ui/AgentHarness'
+import { AgentToolsPanel } from './ui/AgentToolsPanel'
 import { ConfirmBanner } from './ui/ConfirmBanner'
 import { Header } from './ui/Header'
 import { ImportBanner } from './ui/ImportBanner'
 import { Inspector } from './ui/Inspector'
 import { NightStrip } from './ui/NightStrip'
+import { Onboarding } from './ui/Onboarding'
+import { shouldAutoOpenTourFor } from './ui/onboardingState'
 import { PlanPanel } from './ui/PlanPanel'
+import { StalePlanBanner } from './ui/StalePlanBanner'
 import { TimeSlider } from './ui/TimeSlider'
 
 /**
@@ -83,6 +87,12 @@ function consumeSharedPlanHash(): void {
 }
 
 export default function App() {
+  // First visit only: nothing stored means nobody has been told yet what the
+  // agent half of this page is for. The Header button reopens it forever after.
+  // Read before the effect below clears the hash, so a shared plan link is not
+  // greeted by a modal.
+  const [tourOpen, setTourOpen] = useState(() => shouldAutoOpenTourFor(window.location.hash))
+
   useEffect(() => {
     consumeSharedPlanHash()
     window.addEventListener('hashchange', consumeSharedPlanHash)
@@ -91,7 +101,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-abyss text-[#e6e9f0] lg:h-dvh lg:overflow-hidden">
-      <Header />
+      <Header onOpenTour={() => setTourOpen(true)} />
 
       <main className="grid grid-cols-1 gap-3 p-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="flex min-w-0 flex-col gap-3 lg:min-h-0">
@@ -108,11 +118,15 @@ export default function App() {
           <ConfirmBanner />
           <NightStrip />
           <Inspector />
+          <StalePlanBanner />
           <PlanPanel />
+          <AgentToolsPanel />
           <ActivityLog />
           <AgentHarness />
         </aside>
       </main>
+
+      <Onboarding open={tourOpen} onClose={() => setTourOpen(false)} />
     </div>
   )
 }

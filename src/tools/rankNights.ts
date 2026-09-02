@@ -1,5 +1,5 @@
 /**
- * Tool 3: pick the night, do not iterate over it.
+ * Tool 3: pick the best ASTRONOMICAL night, do not iterate over the range.
  *
  * The first external agent we tested asked for "the best nights in September" and
  * had no way to get one except calling the single-night tool fifteen times. This
@@ -9,6 +9,10 @@
  * Scoring is USABLE dark hours: astronomical darkness while the Moon is down or too
  * thin to matter (see src/astro/rank.ts). A long night under a full Moon is not a
  * good night, and a score that ignored the Moon would quietly lie about that.
+ *
+ * "Astronomical" is the honest half of the claim and the tool says so everywhere:
+ * this ranks darkness and Moon, and knows nothing whatsoever about the weather.
+ * The clouds live in `compare_dark_sky_sites`, which asks Open-Meteo.
  */
 
 import type { DarknessStatus } from '../astro/night'
@@ -53,7 +57,7 @@ export interface RankNightsData {
 }
 
 export const RANK_NIGHTS_DESCRIPTION =
-  'Use this to compare many nights and pick the best one instead of calling get_night_ephemeris in a loop. Scores every night in a date range (inclusive, up to 62 nights) by USABLE dark hours: astronomical darkness while the Moon is below the horizon or thinner than 15% illuminated. Returns nights sorted best-first with score (0-100), dark hours, Moon-free hours, Moon illumination and a one-line explanation. Honours cancellation. Read-only: it does not move the app. To put the app on the night you picked, call set_observing_time with { "date": <the night_of you chose> }. from_date and to_date are both required and both name the EVENING a night starts; a two-night range is fine when the person is only choosing between, say, Friday and Saturday ({ "from_date": "2026-09-04", "to_date": "2026-09-05" }).'
+  'Use this to find the BEST ASTRONOMICAL NIGHT in a date range instead of calling get_night_ephemeris in a loop. Scores every night in the range (inclusive, up to 62 nights) by USABLE dark hours: astronomical darkness while the Moon is below the horizon or thinner than 15% illuminated. Astronomy only: darkness and Moon. It does not know the weather; for cloud cover use compare_dark_sky_sites. Returns nights sorted best-first with score (0-100), dark hours, Moon-free hours, Moon illumination and a one-line explanation. Honours cancellation. Read-only: it does not move the app. To put the app on the night you picked, call set_observing_time with { "date": <the night_of you chose> }. from_date and to_date are both required and both name the EVENING a night starts; a two-night range is fine when the person is only choosing between, say, Friday and Saturday ({ "from_date": "2026-09-04", "to_date": "2026-09-05" }).'
 
 function toRanked(score: NightScore): RankedNight {
   return {
@@ -116,14 +120,14 @@ function buildSummary(data: RankNightsData, site: Site): string {
   const [first, ...rest] = shown.map(nightClause)
   const tail = rest.length > 0 ? `, then ${rest.join(', ')}` : ''
   return (
-    `Best of ${data.nights_evaluated} nights (${data.from_date} to ${data.to_date}) at ${site.name}: ` +
-    `${first}${tail}.`
+    `Best astronomical night of ${data.nights_evaluated} (${data.from_date} to ${data.to_date}) ` +
+    `at ${site.name}: ${first}${tail}.`
   )
 }
 
 export const rankNightsTool = defineTool<RankNightsData>({
   name: 'rank_nights',
-  title: 'Rank a range of nights by usable dark hours',
+  title: 'Best astronomical night in a date range',
   description: RANK_NIGHTS_DESCRIPTION,
   inputSchema: {
     type: 'object',

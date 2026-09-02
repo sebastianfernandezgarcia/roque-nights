@@ -57,6 +57,14 @@ beforeEach(() => {
 })
 
 describe('modify_plan declaration', () => {
+  it('warns the agent that reorder recompacts the times', () => {
+    expect(modifyPlanTool.description).toContain('RECOMPACTS')
+    const properties = (modifyPlanTool.inputSchema as { properties: Record<string, unknown> })
+      .properties
+    const operations = properties.operations as { items: { properties: Record<string, { description?: string }> } }
+    expect(operations.items.properties.op.description).toContain('RECOMPACTS')
+  })
+
   it('is named as the plan says and does not claim to be idempotent', () => {
     expect(modifyPlanTool.name).toBe('modify_plan')
     // "add" mints a new item id per call, so a repeated batch duplicates blocks.

@@ -41,6 +41,12 @@ describe('the declaration an agent reads', () => {
       idempotentHint: true,
     })
     expect(rankNightsTool.description).toMatch(/instead of calling get_night_ephemeris in a loop/)
+    expect(rankNightsTool.description).toContain('BEST ASTRONOMICAL NIGHT')
+    // Honesty about the half it does not know: the clouds live elsewhere.
+    expect(rankNightsTool.description).toContain(
+      'It does not know the weather; for cloud cover use compare_dark_sky_sites.',
+    )
+    expect(rankNightsTool.title).toContain('astronomical night')
     // The playbook prompt is "which night is best here? Set the app to it", so
     // the description has to say the tool does not do the second half.
     expect(rankNightsTool.description).toContain('Read-only: it does not move the app')
@@ -90,7 +96,7 @@ describe('ranking a fortnight at the Roque', () => {
   it('writes a summary with the winning dates and their numbers', async () => {
     const result = expectOk(await call({ ...SEPTEMBER, limit: 3 }))
     const winner = result.data.best[0]
-    expect(result.summary).toContain('15 nights')
+    expect(result.summary).toContain('Best astronomical night of 15')
     expect(result.summary).toContain('2026-08-31 to 2026-09-14')
     expect(result.summary).toContain(winner.night_of)
     expect(result.summary).toContain(`score ${winner.score}`)

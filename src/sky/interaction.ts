@@ -28,6 +28,13 @@ const ZOOM_RATE = 0.0015
 const MAX_DRAG_PASSES = 4
 /** A pass that buys less than a twentieth of a pixel has converged. */
 const DRAG_EPSILON_PX = 0.05
+/**
+ * Widest field of view a drag may pan, degrees. At the whole sky dome the
+ * horizon is already inside the frame: panning it only tips the circle off the
+ * canvas and leaves the deformed, half empty sky the audit caught. From 150°
+ * out the dome stays centred on the zenith and the wheel is the way out.
+ */
+export const PAN_MIN_FOV_LOCK = 150
 
 export interface TrailingBurst {
   /** One notch happened. `onSettled` fires `delayMs` after the LAST one. */
@@ -152,6 +159,17 @@ function clampDragged(view: SkyView): SkyView {
 }
 
 /**
+ * Whether a drag may pan the sky at this field of view.
+ *
+ * Pure and cheap so both the gesture (`SkyMap`) and the geometry (`dragToView`)
+ * can ask the same question. A field of view that is not a number is treated as
+ * the whole sky, which is what the projection clamps it to.
+ */
+export function canPanAtFov(fovDeg: number): boolean {
+  return Number.isFinite(fovDeg) && fovDeg < PAN_MIN_FOV_LOCK
+}
+
+/**
  * The view after dragging from `start` to `current`, with the sky stuck to the
  * pointer: the patch of sky grabbed at the start stays under the finger.
  *
@@ -175,6 +193,9 @@ export function dragToView(
 ): SkyView {
   const grabbedAltAz = unproject(start.x, start.y, frame, width, height)
   const startView = clampDragged(start.view)
+  // The whole sky dome does not pan: see PAN_MIN_FOV_LOCK. Only human drags come
+  // through here, so point_sky_map keeps every view it asks for.
+  if (!canPanAtFov(startView.fovDeg)) return startView
   if (!grabbedAltAz) return startView
   const grabbed = altAzToVec(grabbedAltAz.altDeg, grabbedAltAz.azDeg)
 

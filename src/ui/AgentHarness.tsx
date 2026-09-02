@@ -47,6 +47,7 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   export_plan: { format: 'json' },
   import_plan: { source: 'M31, M45, M7' },
   compare_dark_sky_sites: { limit: 3, include_weather: false },
+  set_observing_site: { site_id: 'mauna-kea' },
 }
 
 /** The five prompts of the README, copyable straight into an agent. */

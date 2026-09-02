@@ -29,6 +29,8 @@ export const BASE_TOOL_NAMES = [
   // token, so unregistering it the moment it succeeds would take the undo away
   // with it.
   'clear_plan',
+  // Moving the app to another site makes sense at any moment, plan or no plan.
+  'set_observing_site',
 ] as const
 
 /** Registered while the committed plan has at least one item. */

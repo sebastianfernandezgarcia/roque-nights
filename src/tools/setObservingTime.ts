@@ -15,7 +15,7 @@ import { getNight } from '../astro/cache'
 import type { NightEphemeris, TimeKeyword } from '../astro/night'
 import { formatLatitude, makeObserver, moonAltitudeDeg, resolveTimeKeyword, sunAltitudeDeg } from '../astro/night'
 import { formatInZone, localDate, roundTo } from '../astro/time'
-import { store } from '../state/store'
+import { observingNightIn, store } from '../state/store'
 import type { Stamp, ToolError, ToolResult } from './envelope'
 import { defineTool, fail, ok, stamp } from './envelope'
 import { resolveNightOf } from './resolveSite'
@@ -44,7 +44,7 @@ const LATEST_INSTANT_MS = Date.UTC(2100, 11, 31, 23, 59, 59, 999)
 
 /** The keyword list, spelled out once for the agent-facing strings. */
 const KEYWORD_GLOSS =
-  '"now" (the real clock; when the selected night does not contain it the slider goes to the middle of that night instead, with a caveat), ' +
+  '"now" (the REAL clock right now; when the selected night does not contain it the app moves to the observing night that does, and says so in caveats), ' +
   '"sunset" (the Sun at the horizon, still far too bright to observe), ' +
   '"darkness_start" (the start of ASTRONOMICAL darkness, Sun 18 degrees below the horizon: this is what "when it gets dark" means for observing, about 1 h 40 min after sunset at the Roque), ' +
   '"midnight" (the middle of astronomical darkness, NOT 00:00 clock time), ' +
@@ -105,12 +105,21 @@ function keywordExcuse(keyword: TimeKeyword, night: NightEphemeris): string {
   return 'the event does not happen inside this night.'
 }
 
+/** A resolved instant, plus the night the app has to move to for it to make sense. */
+interface ResolvedTime {
+  iso: string
+  caveats: string[]
+  /** Set only by "now": the observing night that really contains the real clock. */
+  nightOf?: string
+}
+
 function resolveTime(
   raw: unknown,
   night: NightEphemeris,
   nightOf: string,
   latitude: number,
-): { iso: string; caveats: string[] } | ToolError {
+  timeZone: string | null,
+): ResolvedTime | ToolError {
   if (typeof raw !== 'string' || raw.trim() === '') {
     return fail(
       'invalid_input',
@@ -129,22 +138,20 @@ function resolveTime(
       )
     }
     if (keyword === 'now') {
-      // The real clock belongs to a real night. Pointing the slider at it while
-      // the app is showing another night would put the dome hours outside the
-      // window every other panel is drawn for.
-      const nowMs = Date.parse(iso)
-      const inside =
-        nowMs >= Date.parse(night.windowStartUtc) && nowMs <= Date.parse(night.windowEndUtc)
-      if (!inside) {
-        const middle = resolveTimeKeyword('midnight', night)
-        if (middle) {
-          return {
-            iso: new Date(middle).toISOString(),
-            caveats: [
-              `The real clock (${hhmm(iso)} UTC on ${iso.slice(0, 10)}) is not inside the night of ${nightOf}, so the slider went to the middle of that night instead.`,
-            ],
-          }
-        }
+      // "now" means the real clock, full stop. Answering with the middle of the
+      // selected night instead was the one place where this app told an agent a
+      // time that nobody was living in; the app moves to the night that really
+      // contains the clock rather than moving the clock into the night.
+      const now = new Date()
+      const realIso = now.toISOString()
+      const realNight = observingNightIn(timeZone, now)
+      if (realNight === nightOf) return { iso: realIso, caveats: [] }
+      return {
+        iso: realIso,
+        nightOf: realNight,
+        caveats: [
+          `The real clock is ${hhmm(realIso)} UTC on ${realIso.slice(0, 10)}, so the app moved to the night of ${realNight}.`,
+        ],
       }
     }
     return { iso: new Date(iso).toISOString(), caveats: [] }
@@ -204,10 +211,18 @@ function run(input: Record<string, unknown>): ToolResult<SetObservingTimeData> {
   let timeUtc = state.timeUtc
 
   if (hasTime) {
-    const resolved = resolveTime(input.time, night, nightOf, site.latitude)
+    const resolved = resolveTime(input.time, night, nightOf, site.latitude, site.timeZone)
     if ('ok' in resolved) return resolved
     timeUtc = resolved.iso
     caveats.push(...resolved.caveats)
+
+    // "now" already knows which night contains the real clock, and has said so.
+    let movedNight = false
+    if (resolved.nightOf !== undefined && resolved.nightOf !== nightOf) {
+      nightOf = resolved.nightOf
+      night = getNight(nightOf, site)
+      movedNight = true
+    }
 
     // An instant from another night must not leave the app showing this one:
     // the dome, the timeline and every altitude would be computed for a night
@@ -215,7 +230,7 @@ function run(input: Record<string, unknown>): ToolResult<SetObservingTimeData> {
     const ms = Date.parse(timeUtc)
     const inside =
       ms >= Date.parse(night.windowStartUtc) && ms <= Date.parse(night.windowEndUtc)
-    if (!inside) {
+    if (!inside && !movedNight) {
       const containing = observingNightOf(timeUtc, site.timeZone)
       if (containing !== nightOf) {
         caveats.push(

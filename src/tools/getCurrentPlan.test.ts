@@ -1,14 +1,23 @@
 import { Ajv } from 'ajv'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { resetStore, store } from '../state/store'
-import type { PlanItem } from '../state/types'
+import { ROQUE_DE_LOS_MUCHACHOS, resetStore, store } from '../state/store'
+import type { PlanItem, Site } from '../state/types'
 import type { ToolError, ToolOk } from './envelope'
 import { getCurrentPlanTool } from './getCurrentPlan'
 import type { GetCurrentPlanData } from './getCurrentPlan'
 
 const NIGHT_OF = '2026-09-02'
 const AT = '2026-09-02T23:00:00Z'
+
+const MAUNA_KEA: Site = {
+  id: 'mauna-kea',
+  name: 'Mauna Kea, Hawaii',
+  latitude: 19.8207,
+  longitude: -155.4681,
+  elevationM: 4205,
+  timeZone: 'Pacific/Honolulu',
+}
 
 const ajv = new Ajv({ allErrors: true, strict: false })
 
@@ -164,6 +173,56 @@ describe('get_current_plan', () => {
     expect(result.data.items.map((i) => i.target_id)).toEqual(['M31', 'M13'])
     expect(result.data.proposals_pending).toBe(1)
     expect(result.data.total_minutes).toBe(90)
+  })
+
+  it('reports the magnitude and the transit of every item', async () => {
+    setPlan([
+      planItem('M31', '2026-09-02T23:00:00Z', '2026-09-02T23:45:00Z'),
+      planItem('saturn', '2026-09-03T02:00:00Z', '2026-09-03T02:45:00Z'),
+    ])
+    const items = expectOk(await run()).data.items
+    const m31 = items.find((item) => item.target_id === 'M31')!
+    const saturn = items.find((item) => item.target_id === 'saturn')!
+
+    // A catalog object carries the catalog magnitude, unchanged.
+    expect(m31.magnitude).toBeCloseTo(3.4, 1)
+    // A planet has no fixed magnitude: it is computed for this block.
+    expect(saturn.magnitude).not.toBeNull()
+    expect(saturn.magnitude).toBeGreaterThan(-2)
+    expect(saturn.magnitude).toBeLessThan(3)
+
+    // Transit is measured over the whole night, so it can fall outside the block.
+    expect(m31.transit.utc).toMatch(/^2026-09-0[23]T/)
+    expect(m31.transit.local).toMatch(/^2026-09-0[23] \d{2}:\d{2}$/)
+    expect(m31.transit_altitude_deg).toBeGreaterThan(60)
+    expect(saturn.transit.utc).not.toBeNull()
+    expect(saturn.transit_altitude_deg).toBeGreaterThan(0)
+  })
+
+  it('leaves magnitude and transit null for a target it does not know', async () => {
+    setPlan([planItem('comet-2026-x1', '2026-09-02T23:00:00Z', '2026-09-02T23:45:00Z')])
+    const item = expectOk(await run()).data.items[0]
+    expect(item.magnitude).toBeNull()
+    expect(item.transit).toEqual({ utc: null, local: null })
+    expect(item.transit_altitude_deg).toBeNull()
+  })
+
+  it('says in a caveat that the plan was built for another sky', async () => {
+    setPlan([planItem('M31', '2026-09-02T23:00:00Z', '2026-09-02T23:45:00Z')])
+    store.getState().setSite(MAUNA_KEA, 'agent')
+
+    const result = expectOk(await run())
+    expect(result.caveats.join(' ')).toContain(
+      `The plan was built for ${ROQUE_DE_LOS_MUCHACHOS.name}, night of ${NIGHT_OF}`,
+    )
+    expect(result.caveats.join(' ')).toContain(`the app now shows ${MAUNA_KEA.name}`)
+    // Still a full answer: the caveat explains the times, it does not hide them.
+    expect(result.data.items).toHaveLength(1)
+  })
+
+  it('says nothing about staleness while the app still shows the same sky', async () => {
+    setPlan([planItem('M31', '2026-09-02T23:00:00Z', '2026-09-02T23:45:00Z')])
+    expect(expectOk(await run()).caveats).toEqual([])
   })
 
   it('changes nothing', async () => {

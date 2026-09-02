@@ -17,7 +17,7 @@ import { getNight } from '../astro/cache'
 import { toCsv, toIcs, toObservingPlanV1, type ObservingPlanV1 } from '../plan/serialize'
 import { buildShareUrl } from '../plan/shareUrl'
 import type { RoqueState } from '../state/store'
-import { useRoqueStore } from '../state/store'
+import { planStaleness, useRoqueStore } from '../state/store'
 
 export type ExportFormat = 'json' | 'ics' | 'csv'
 
@@ -125,6 +125,36 @@ async function copyText(text: string): Promise<boolean> {
   return false
 }
 
+/** Shown while the plan belongs to another site or another night. */
+export const STALE_EXPORT_NOTE = 'Revalidate or keep the plan before exporting.'
+
+/** Shown while there is nothing in the plan. */
+export const EMPTY_EXPORT_NOTE =
+  'Nothing to export yet. Add a target to the plan, or ask your agent to propose one.'
+
+/** Shown when the plan is exportable. */
+export const READY_EXPORT_NOTE =
+  'JSON is the open observing-plan.v1 document: another observer can import it and revalidate it for their own sky.'
+
+export interface ExportGate {
+  /** True while every export path is refused. */
+  blocked: boolean
+  note: string
+  /** True when the note is a warning, not an explanation. */
+  warning: boolean
+}
+
+/**
+ * Whether the plan can leave the browser, and the one line that says why not.
+ * A plan whose times were computed for another sky must not be shared as if
+ * they were true here: revalidate it, or say out loud that you keep it anyway.
+ */
+export function exportGate(state: { empty: boolean; stale: boolean }): ExportGate {
+  if (state.stale) return { blocked: true, note: STALE_EXPORT_NOTE, warning: true }
+  if (state.empty) return { blocked: true, note: EMPTY_EXPORT_NOTE, warning: false }
+  return { blocked: false, note: READY_EXPORT_NOTE, warning: false }
+}
+
 const LABEL = 'text-[11px] uppercase tracking-[0.2em] text-faint'
 const BUTTON =
   'rounded-sm border border-panel-edge px-2 py-1 text-[11px] uppercase tracking-[0.2em] text-faint hover:border-ember/50 hover:text-ember disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-panel-edge disabled:hover:text-faint'
@@ -134,6 +164,7 @@ export function ExportActions() {
   const nightOf = useRoqueStore((s) => s.nightOf)
   const plan = useRoqueStore((s) => s.plan)
   const logActivity = useRoqueStore((s) => s.logActivity)
+  const stale = useRoqueStore((s) => planStaleness(s).stale)
   const [copied, setCopied] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -143,6 +174,7 @@ export function ExportActions() {
   }, [])
 
   const empty = plan.length === 0
+  const gate = exportGate({ empty, stale })
 
   const download = useCallback(
     (format: ExportFormat) => {
@@ -185,7 +217,7 @@ export function ExportActions() {
             key={format}
             type="button"
             className={BUTTON}
-            disabled={empty}
+            disabled={gate.blocked}
             title={`Download roque-nights-plan-${nightOf}.${format}`}
             onClick={() => download(format)}
           >
@@ -195,7 +227,7 @@ export function ExportActions() {
         <button
           type="button"
           className={copied ? `${BUTTON} border-ember/60 text-ember` : BUTTON}
-          disabled={empty}
+          disabled={gate.blocked}
           title="A link that carries the whole plan in its fragment; nothing is uploaded"
           onClick={() => {
             void copyLink()
@@ -205,10 +237,8 @@ export function ExportActions() {
         </button>
       </div>
 
-      <p className="mt-1 text-[11px] text-faint">
-        {empty
-          ? 'Nothing to export yet. Add a target to the plan, or ask your agent to propose one.'
-          : 'JSON is the open observing-plan.v1 document: another observer can import it and revalidate it for their own sky.'}
+      <p className={`mt-1 text-[11px] ${gate.warning ? 'text-signal' : 'text-faint'}`}>
+        {gate.note}
       </p>
 
       {message && <p className="mt-1 text-[11px] text-signal">{message}</p>}
