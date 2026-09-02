@@ -16,8 +16,8 @@ export const TitleScene: React.FC<{ readonly scene: Scene }> = ({ scene }) => {
   const { fps } = useVideoConfig();
   const t = frame / FPS;
 
-  // the cut to the app is where the second clip part starts
-  const cutSec = (scene.parts[1]?.fromFrame ?? scene.durationInFrames) / FPS;
+  // the hard cut to the app is solved in timeline.ts: it lands on sentence 05
+  const cutSec = scene.cutSec ?? scene.durationSec;
 
   const track = spring({ frame: frame - 0.5 * FPS, fps, config: { damping: 200, mass: 1.6 } });
   const letterSpacing = interpolate(track, [0, 1], [0.6, 0.18]);
@@ -36,16 +36,16 @@ export const TitleScene: React.FC<{ readonly scene: Scene }> = ({ scene }) => {
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
   );
 
-  // the app reveals itself under the title, so the hard cut to clip 01 is a cut in
-  // content, not a cut into a different-looking frame
-  const reveal = interpolate(t, [4.2, 6.85], [0, 1], {
+  // the app reveals itself under the title, finishing just before the hard cut to
+  // clip 01, so that cut is a cut in content, not a cut into a different-looking frame
+  const reveal = interpolate(t, [cutSec - 3.4, cutSec - 0.35], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
 
   return (
     <AbsoluteFill>
-      <ClipStage parts={scene.parts} />
+      <ClipStage segments={scene.segments} />
       <ChromeMask right={reveal} />
       <AbsoluteFill
         style={{

@@ -14,7 +14,8 @@
     "ambient": "node scripts/make-ambient.mjs",
     "placeholders": "node scripts/make-placeholders.mjs",
     "pretypecheck": "node scripts/manifest.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "alignment": "node scripts/alignment.mjs"
   },
   "dependencies": {
     "@remotion/cli": "4.0.520",

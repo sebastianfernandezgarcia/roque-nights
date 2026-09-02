@@ -15,7 +15,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = join(ROOT, 'public');
 
 const SAMPLE_RATE = 48000;
-const DURATION_S = 160;
+const DURATION_S = 176;
 const CHANNELS = 2;
 const FADE_IN_S = 6;
 const FADE_OUT_S = 8;

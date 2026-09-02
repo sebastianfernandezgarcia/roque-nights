@@ -1,5 +1,5 @@
 {
-  "hasVoice": false,
+  "hasVoice": true,
   "hasAmbient": true,
   "hasDomeStill": true,
   "clips": {
@@ -9,6 +9,5 @@
     "04-ghost-plan.mp4": true,
     "05-another-sky.mp4": true,
     "06-dome.mp4": true
-  },
-  "voiceCues": null
+  }
 }

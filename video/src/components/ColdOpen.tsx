@@ -16,7 +16,7 @@ export const ColdOpen: React.FC<{ readonly scene: Scene }> = ({ scene }) => {
 
   return (
     <AbsoluteFill>
-      <ClipStage parts={scene.parts} />
+      <ClipStage segments={scene.segments} />
       <ChromeMask right={0} />
       <div
         style={{

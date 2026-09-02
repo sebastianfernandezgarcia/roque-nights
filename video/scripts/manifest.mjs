@@ -5,7 +5,8 @@
  * Optional assets can't be `import`ed conditionally from a bundle, so this writes
  * src/manifest.json describing what is actually on disk:
  *   - public/voice.mp3   → voice-over track
- *   - public/voice.json  → subtitle cues that override src/subtitles.ts
+ *   - public/voice.json  → the subtitle cues (imported directly by src/subtitles.ts;
+ *                          only checked for validity here)
  *   - public/ambient.m4a → music bed
  *   - public/dome-still.jpg → thumbnail background (extracted here from 06-dome.mp4)
  *
@@ -53,19 +54,24 @@ if (existsSync(domeClip) && (!hasDomeStill || stale)) {
 }
 
 // --- voice cues ------------------------------------------------------------
-let voiceCues = null;
+// src/subtitles.ts imports public/voice.json at build time; this only reports on it.
+let voiceCueCount = 0;
 if (has('voice.json')) {
   try {
     const parsed = JSON.parse(readFileSync(join(PUBLIC, 'voice.json'), 'utf8'));
     if (Array.isArray(parsed)) {
-      voiceCues = parsed
-        .filter((c) => typeof c?.text === 'string' && Number.isFinite(c.startSec) && Number.isFinite(c.endSec))
-        .map((c) => ({ text: c.text, startSec: c.startSec, endSec: c.endSec }));
-      console.log(`manifest: voice.json → ${voiceCues.length} subtitle cue(s) override src/subtitles.ts`);
+      voiceCueCount = parsed.filter(
+        (c) => typeof c?.text === 'string' && Number.isFinite(c.startSec) && Number.isFinite(c.endSec),
+      ).length;
+      if (voiceCueCount !== parsed.length) {
+        console.warn(`manifest: ${parsed.length - voiceCueCount} cue(s) in voice.json are malformed`);
+      }
     }
   } catch (err) {
-    console.warn(`manifest: public/voice.json is not valid JSON, ignoring (${err.message})`);
+    console.warn(`manifest: public/voice.json is not valid JSON (${err.message})`);
   }
+} else {
+  console.warn('manifest: public/voice.json is missing — the subtitle track will be empty');
 }
 
 const missingClips = CLIP_FILES.filter((f) => !existsSync(join(CLIPS, f)));
@@ -81,12 +87,11 @@ const manifest = {
   hasAmbient: has('ambient.m4a'),
   hasDomeStill,
   clips: Object.fromEntries(CLIP_FILES.map((f) => [f, existsSync(join(CLIPS, f))])),
-  voiceCues,
 };
 
 const next = `${JSON.stringify(manifest, null, 2)}\n`;
 const prev = existsSync(MANIFEST) ? readFileSync(MANIFEST, 'utf8') : '';
 if (prev !== next) writeFileSync(MANIFEST, next);
 console.log(
-  `manifest: ambient=${manifest.hasAmbient} voice=${manifest.hasVoice} voiceCues=${voiceCues ? voiceCues.length : 0} domeStill=${manifest.hasDomeStill} clips=${CLIP_FILES.length - missingClips.length}/${CLIP_FILES.length}`,
+  `manifest: ambient=${manifest.hasAmbient} voice=${manifest.hasVoice} voiceCues=${voiceCueCount} domeStill=${manifest.hasDomeStill} clips=${CLIP_FILES.length - missingClips.length}/${CLIP_FILES.length}`,
 );

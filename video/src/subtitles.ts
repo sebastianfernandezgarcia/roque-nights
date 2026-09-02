@@ -1,172 +1,168 @@
 /**
- * Subtitles = the bold fragments of docs/video/script.md, nothing else.
+ * Burned-in subtitles: the FULL sentences of the voice-over, straight from
+ * public/voice.json (absolute composition seconds — the same file the narration audio
+ * was laid out against, so a cue can never drift from what is being said).
  *
- * Timings are relative to their scene, so moving or resizing a scene in timeline.ts
- * carries its subtitles with it. A fragment with no timing is spread evenly across
- * whatever room the scene's untimed fragments have left.
- *
- * public/voice.json (absolute seconds, produced from the real voice-over) overrides
- * the whole track — see scripts/manifest.mjs.
+ * A cue is on screen from `startSec - LEAD` to `endSec + TAIL`, never overlapping the
+ * next one. A sentence longer than two lines of ~47 characters is broken at a comma or
+ * a clause boundary into consecutive pills that share the sentence's window in
+ * proportion to their length, so no pill is ever taller than two lines.
  */
-import { FACTS } from './log';
-import manifest from './manifest.json';
-import { SCENES, type SceneId } from './timeline';
+import voiceJson from '../public/voice.json';
 
-/**
- * Every number the subtitles say comes out of video/public/clips/log.json `facts`,
- * measured against the deployed app during the recording — never typed in by hand.
- */
-const WORDS = [
-  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
-  'eighteen', 'nineteen', 'twenty',
-] as const;
-
-const ORDINALS: Record<number, string> = {
-  1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', 6: 'sixth', 7: 'seventh',
-  8: 'eighth', 9: 'ninth', 10: 'tenth', 11: 'eleventh', 12: 'twelfth', 13: 'thirteenth',
-  14: 'fourteenth', 15: 'fifteenth', 16: 'sixteenth', 17: 'seventeenth', 18: 'eighteenth',
-  19: 'nineteenth', 20: 'twentieth', 21: 'twenty-first', 22: 'twenty-second',
-  23: 'twenty-third', 24: 'twenty-fourth', 25: 'twenty-fifth', 26: 'twenty-sixth',
-  27: 'twenty-seventh', 28: 'twenty-eighth', 29: 'twenty-ninth', 30: 'thirtieth',
-  31: 'thirty-first',
-};
-
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-const spell = (n: number): string => WORDS[n] ?? String(n);
-
-/** facts.bestNight "2026-09-13" → "September thirteenth" */
-const bestNightSpoken = (): string => {
-  const [, month, day] = FACTS.bestNight.split('-').map(Number);
-  return `${MONTHS[month - 1]} ${ORDINALS[day] ?? day}`;
-};
-
-/** facts.moonPct 8 → "a thin Moon" */
-const moonSpoken = (): string =>
-  FACTS.moonPct <= 12 ? 'a thin Moon' : `a ${FACTS.moonPct}% Moon`;
-
-/** facts.usableHours 8.97 → "nine hours of darkness" */
-const darknessSpoken = (): string =>
-  `${spell(Math.round(FACTS.usableHours))} hours of darkness`;
-
-/**
- * The header badge in the footage reads "WEBMCP LIVE · 11 TOOLS" at rest (12 while a
- * proposal is pending, 14 after the commit), so the line has to say both numbers or it
- * contradicts the frame it sits on. 15 is facts.toolsRegistered, the full catalogue.
- */
-const ALWAYS_LIVE = 11;
-
-export type Cue = { text: string; startSec: number; endSec: number };
-
-type Fragment = {
+export type VoiceCue = {
+  id: string;
+  scene: string;
   text: string;
-  /** seconds from the start of the scene; omit both to be spread evenly */
-  startSec?: number;
-  endSec?: number;
+  startSec: number;
+  endSec: number;
 };
 
-const FRAGMENTS: Partial<Record<SceneId, Fragment[]>> = {
-  // 0:00–0:14 cold open — the VO has no bold fragment here, only the location caption.
-  title: [{ text: 'One live sky map, two operators.', startSec: 8.4, endSec: 13.4 }],
-  onboarding: [
-    // the tour is still open here; the badge behind it reads "11 TOOLS"
-    {
-      text: `${spell(FACTS.toolsRegistered)} WebMCP tools, ${spell(ALWAYS_LIVE)} always live.`,
-      startSec: 2.4,
-      endSec: 7.0,
-    },
-    {
-      // lands after "Done" closes the tour at 7.4 s
-      text: 'plan me a three-hour night, best night in the next two weeks, avoiding the Moon.',
-      startSec: 8.4,
-      endSec: 15.6,
-    },
-  ],
-  agentPoints: [
-    // rank_nights resolves at 1.4 s
-    {
-      text: `${bestNightSpoken()}: ${moonSpoken()}, ${darknessSpoken()}.`,
-      startSec: 1.9,
-      endSec: 8.2,
-    },
-    // the five point_sky_map calls run 5.9 s → 18.8 s
-    { text: 'The agent is pointing the dome at each target while I watch.', startSec: 9.8, endSec: 18.0 },
-  ],
-  favorites: [
-    // the two double-clicks land at 4.5 s and 10.6 s
-    { text: 'Andromeda and the Pleiades as favorites.', startSec: 3.8, endSec: 11.4 },
-    // describe_current_view resolves at 15.3 s
-    { text: 'It reads my gesture through describe_current_view.', startSec: 12.8, endSec: 18.3 },
-  ],
-  ghostPlan: [
-    // propose_plan resolves at 1.3 s, the ghost blocks appear with it
-    { text: 'a ghost plan.', startSec: 1.8, endSec: 6.6 },
-    // the four Accepts run 8.3 s → 12.9 s, Commit accepted at 15.8 s
-    { text: 'item by item', startSec: 8.2, endSec: 14.2 },
-  ],
-  anotherSky: [
-    // set_observing_site resolves at 1.3 s
-    { text: 'Mauna Kea.', startSec: 1.6, endSec: 5.0 },
-    // out before the human clicks Revalidate plan at 9.0 s
-    { text: 'this plan was built for a different sky.', startSec: 5.6, endSec: 8.8 },
-    // Copy share link at 16.9 s
-    { text: 'a share link that carries the whole plan.', startSec: 15.6, endSec: 21.4 },
-  ],
-  closingDome: [
-    { text: 'Zero servers. All the astronomy computed locally.', startSec: 3.2, endSec: 9.6 },
-    {
-      // ends where the shot starts fading to black
-      text: "it doesn't scrape my interface. It uses the same instrument I do.",
-      startSec: 11.0,
-      endSec: 19.2,
-    },
-  ],
-  // the outro says "Plan the sky with your agent." as the tagline itself, not as a pill
-};
+export const VOICE_CUES = (voiceJson as unknown as VoiceCue[])
+  .slice()
+  .sort((a, b) => a.startSec - b.startSec);
 
-const PAD_SEC = 0.6;
-const GAP_SEC = 0.4;
+/** The pill comes up just before the word and lingers a beat after it. */
+const LEAD_SEC = 0.1;
+const TAIL_SEC = 0.35;
+/** Never let two pills touch. */
+const GAP_SEC = 0.05;
 
-const spread = (fragments: Fragment[], sceneDuration: number): Cue[] => {
-  const timed = fragments.filter((f) => f.startSec !== undefined && f.endSec !== undefined);
-  const untimed = fragments.filter((f) => f.startSec === undefined || f.endSec === undefined);
-  const cues: Cue[] = timed.map((f) => ({
-    text: f.text,
-    startSec: f.startSec as number,
-    endSec: f.endSec as number,
-  }));
-  if (untimed.length > 0) {
-    const room = sceneDuration - PAD_SEC * 2;
-    const slot = room / untimed.length;
-    untimed.forEach((f, i) => {
-      const start = PAD_SEC + i * slot;
-      cues.push({ text: f.text, startSec: start, endSec: start + Math.max(1.8, slot - GAP_SEC) });
-    });
+/** IBM Plex Mono at 36 px is 21.6 px per glyph: 47 glyphs is 1015 px inside the pill. */
+export const MAX_LINE_CHARS = 47;
+const MAX_PILL_CHARS = MAX_LINE_CHARS * 2;
+
+const CLAUSE_MARKS = new Set([',', '.', ';', ':', '!', '?']);
+
+/** Break a sentence at its clause marks, keeping the mark on the left-hand piece. */
+const clausesOf = (text: string): string[] => {
+  const parts: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length - 1; i += 1) {
+    if (CLAUSE_MARKS.has(text[i]) && text[i + 1] === ' ') {
+      parts.push(text.slice(start, i + 1));
+      start = i + 2;
+    }
   }
-  return cues.sort((a, b) => a.startSec - b.startSec);
+  const rest = text.slice(start).trim();
+  if (rest.length > 0) parts.push(rest);
+  return parts.length > 0 ? parts : [text];
 };
 
-const fromScript = (): Cue[] =>
-  SCENES.flatMap((scene) => {
-    const fragments = FRAGMENTS[scene.id];
-    if (!fragments || fragments.length === 0) return [];
-    return spread(fragments, scene.durationSec).map((c) => ({
-      text: c.text,
-      startSec: scene.startSec + c.startSec,
-      endSec: scene.startSec + Math.min(c.endSec, scene.durationSec - 0.1),
-    }));
+/** Two balanced lines, broken at a clause mark when one is near the middle. */
+const wrapTwo = (text: string): string[] | null => {
+  if (text.length <= MAX_LINE_CHARS) return [text];
+  const words = text.split(' ');
+  let best: { lines: string[]; score: number } | null = null;
+  for (let i = 1; i < words.length; i += 1) {
+    const a = words.slice(0, i).join(' ');
+    const b = words.slice(i).join(' ');
+    if (a.length > MAX_LINE_CHARS || b.length > MAX_LINE_CHARS) continue;
+    const clauseBreak = CLAUSE_MARKS.has(a[a.length - 1]) ? MAX_LINE_CHARS / 3 : 0;
+    const score = Math.abs(a.length - b.length) - clauseBreak;
+    if (best === null || score < best.score) best = { lines: [a, b], score };
+  }
+  return best === null ? null : best.lines;
+};
+
+/** Cut `parts` into `k` consecutive groups that each fit a pill; the most even wins. */
+const splitInto = (parts: string[], k: number): string[][] | null => {
+  if (k > parts.length) return null;
+  let best: { groups: string[][]; spread: number } | null = null;
+
+  const walk = (index: number, left: number, acc: string[][]) => {
+    if (left === 0) {
+      if (index !== parts.length) return;
+      const lengths = acc.map((g) => g.join(' ').length);
+      const spread = Math.max(...lengths) - Math.min(...lengths);
+      if (best === null || spread < best.spread) best = { groups: acc.map((g) => [...g]), spread };
+      return;
+    }
+    for (let end = index + 1; end <= parts.length - (left - 1); end += 1) {
+      const group = parts.slice(index, end);
+      const text = group.join(' ');
+      if (text.length > MAX_PILL_CHARS || wrapTwo(text) === null) continue;
+      walk(end, left - 1, [...acc, group]);
+    }
+  };
+
+  walk(0, k, []);
+  return best === null ? null : (best as { groups: string[][] }).groups;
+};
+
+const pillsFor = (text: string): string[][] => {
+  const parts = clausesOf(text);
+  for (let k = 1; k <= parts.length; k += 1) {
+    const groups = splitInto(parts, k);
+    if (groups) return groups.map((g) => wrapTwo(g.join(' ')) as string[]);
+  }
+  // no clause boundary works: fall back to a hard word wrap into two-line pills
+  const words = text.split(' ');
+  const out: string[][] = [];
+  let line: string[] = [];
+  for (const w of words) {
+    if ([...line, w].join(' ').length > MAX_LINE_CHARS) {
+      out.push([line.join(' ')]);
+      line = [];
+    }
+    line.push(w);
+  }
+  if (line.length > 0) out.push([line.join(' ')]);
+  return out;
+};
+
+export type Pill = {
+  /** one or two lines, already wrapped */
+  lines: string[];
+  startSec: number;
+  endSec: number;
+  cueId: string;
+};
+
+const build = (): Pill[] => {
+  const out: Pill[] = [];
+
+  VOICE_CUES.forEach((cue, index) => {
+    const next = VOICE_CUES[index + 1];
+    const from = Math.max(0, cue.startSec - LEAD_SEC);
+    const hardEnd = next ? next.startSec - LEAD_SEC - GAP_SEC : Number.POSITIVE_INFINITY;
+    const to = Math.min(cue.endSec + TAIL_SEC, hardEnd);
+
+    const groups = pillsFor(cue.text);
+    const weights = groups.map((g) => g.join(' ').length);
+    const total = weights.reduce((a, b) => a + b, 0);
+
+    let cursor = from;
+    groups.forEach((lines, i) => {
+      const share = ((to - from) * weights[i]) / total;
+      const end = i === groups.length - 1 ? to : cursor + share;
+      out.push({ lines, startSec: cursor, endSec: end, cueId: cue.id });
+      cursor = end;
+    });
   });
 
-const voiceCues = (manifest.voiceCues ?? null) as Cue[] | null;
+  return out;
+};
 
-/** Absolute timeline seconds. public/voice.json wins when it exists. */
-export const CUES: Cue[] = voiceCues && voiceCues.length > 0 ? voiceCues : fromScript();
+export const PILLS: Pill[] = build();
 
-export const SUBTITLES_FROM_VOICE = Boolean(voiceCues && voiceCues.length > 0);
+/**
+ * Tool names inside a subtitle are amber: snake_case identifiers (describe_current_view)
+ * and the protocol itself (WebMCP).
+ */
+export const TOOL_NAME_RE = /\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+|WebMCP)\b/g;
 
-/** snake_case identifiers inside a subtitle are tool names and get the amber treatment. */
-export const TOOL_NAME_RE = /\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b/g;
+/** Printed by `npm run alignment`. */
+export const SUBTITLE_REPORT = (): string => {
+  const lines: string[] = [`subtitles: ${PILLS.length} pills from ${VOICE_CUES.length} cues`];
+  let widest = 0;
+  for (const p of PILLS) {
+    widest = Math.max(widest, ...p.lines.map((l) => l.length));
+    lines.push(
+      `   ${p.startSec.toFixed(2).padStart(7)} → ${p.endSec.toFixed(2).padStart(7)}  ` +
+        `[${p.cueId}] ${p.lines.map((l) => `${l} (${l.length})`).join(' / ')}`,
+    );
+  }
+  lines.push(`   widest line ${widest} chars (cap ${MAX_LINE_CHARS})`);
+  return lines.join('\n');
+};

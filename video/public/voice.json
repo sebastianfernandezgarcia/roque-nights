@@ -1,0 +1,156 @@
+[
+ {
+  "id": "01",
+  "scene": "coldOpen",
+  "text": "Hi, I'm Sebastián. I'm an AI engineer at the Gran Telescopio Canarias, the largest optical telescope in the world, here on La Palma.",
+  "startSec": 1.4,
+  "endSec": 10.74
+ },
+ {
+  "id": "02",
+  "scene": "coldOpen",
+  "text": "This is one of the best night skies on Earth.",
+  "startSec": 11.24,
+  "endSec": 14.51
+ },
+ {
+  "id": "03",
+  "scene": "coldOpen",
+  "text": "And planning a good night under it is still surprisingly hard.",
+  "startSec": 15.01,
+  "endSec": 19.65
+ },
+ {
+  "id": "04",
+  "scene": "title",
+  "text": "This is Roque Nights: an observing planner where you and your AI agent share the same instrument.",
+  "startSec": 21.05,
+  "endSec": 28.23
+ },
+ {
+  "id": "05",
+  "scene": "title",
+  "text": "Not an API behind a page. One live sky map, two operators.",
+  "startSec": 28.73,
+  "endSec": 34.17
+ },
+ {
+  "id": "06",
+  "scene": "onboarding",
+  "text": "I open it in ChatGPT's browser, and the app registers fifteen WebMCP tools, eleven always live, right here in the page.",
+  "startSec": 35.57,
+  "endSec": 45.65
+ },
+ {
+  "id": "07",
+  "scene": "onboarding",
+  "text": "I paste one prompt: plan me a three-hour night, best night in the next two weeks, avoiding the Moon.",
+  "startSec": 46.15,
+  "endSec": 53.77
+ },
+ {
+  "id": "08",
+  "scene": "agentPoints",
+  "text": "Watch the panel. The agent ranks the nights and picks September 13th: new Moon, nine hours of darkness.",
+  "startSec": 55.17,
+  "endSec": 64.1
+ },
+ {
+  "id": "09",
+  "scene": "agentPoints",
+  "text": "And the sky map moves. The agent is pointing the dome at each target while I watch.",
+  "startSec": 64.6,
+  "endSec": 70.85
+ },
+ {
+  "id": "10",
+  "scene": "favorites",
+  "text": "Now, the part I care about.",
+  "startSec": 72.75,
+  "endSec": 75.39
+ },
+ {
+  "id": "11",
+  "scene": "favorites",
+  "text": "I tap the sky and mark Andromeda and the Pleiades as my favorites. No typing, just a gesture on the map.",
+  "startSec": 75.89,
+  "endSec": 84.36
+ },
+ {
+  "id": "12",
+  "scene": "favorites",
+  "text": "I ask the agent to adjust the plan around my favorites.",
+  "startSec": 84.86,
+  "endSec": 88.5
+ },
+ {
+  "id": "13a",
+  "scene": "favorites",
+  "text": "It reads my gesture through describe_current_view",
+  "startSec": 89.0,
+  "endSec": 92.36
+ },
+ {
+  "id": "13b",
+  "scene": "ghostPlan",
+  "text": "and proposes a new plan: a ghost plan.",
+  "startSec": 93.06,
+  "endSec": 96.21
+ },
+ {
+  "id": "14",
+  "scene": "ghostPlan",
+  "text": "Nothing is committed until I say so. I review it item by item, and confirm.",
+  "startSec": 96.71,
+  "endSec": 102.64
+ },
+ {
+  "id": "15",
+  "scene": "anotherSky",
+  "text": "And best of all, the plan is portable. I switch the site to Mauna Kea, Hawaii: a very different telescope.",
+  "startSec": 106.34,
+  "endSec": 114.72
+ },
+ {
+  "id": "16",
+  "scene": "anotherSky",
+  "text": "The app flags it immediately: this plan was built for a different sky.",
+  "startSec": 115.22,
+  "endSec": 120.74
+ },
+ {
+  "id": "17",
+  "scene": "anotherSky",
+  "text": "The agent revalidates it, four kept, four moved, and I export it: JSON, calendar, or a shared link that carries the whole plan.",
+  "startSec": 121.24,
+  "endSec": 133.61
+ },
+ {
+  "id": "18",
+  "scene": "closingDome",
+  "text": "Everything runs in the browser. Zero servers. All the astronomy computed locally.",
+  "startSec": 135.61,
+  "endSec": 142.63
+ },
+ {
+  "id": "19",
+  "scene": "closingDome",
+  "text": "WebMCP made this possible: the agent doesn't scrape my interface. It uses the same instrument I do.",
+  "startSec": 143.13,
+  "endSec": 151.13
+ },
+ {
+  "id": "20",
+  "scene": "outro",
+  "text": "So this is Roque Nights. Plan the sky with your agent.",
+  "startSec": 153.43,
+  "endSec": 158.52
+ },
+ {
+  "id": "21",
+  "scene": "outro",
+  "text": "Open source, live now, and built from the Roque de los Muchachos, La Palma.",
+  "startSec": 159.02,
+  "endSec": 164.99
+ }
+]

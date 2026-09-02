@@ -1,0 +1,87 @@
+1
+00:00:01,400 --> 00:00:11,090
+Hi, I'm Sebastián. I'm an AI engineer at the Gran Telescopio Canarias, the largest optical telescope in the world, here on La Palma.
+
+2
+00:00:11,240 --> 00:00:14,860
+This is one of the best night skies on Earth.
+
+3
+00:00:15,010 --> 00:00:20,000
+And planning a good night under it is still surprisingly hard.
+
+4
+00:00:21,050 --> 00:00:28,580
+This is Roque Nights: an observing planner where you and your AI agent share the same instrument.
+
+5
+00:00:28,730 --> 00:00:34,520
+Not an API behind a page. One live sky map, two operators.
+
+6
+00:00:35,570 --> 00:00:46,000
+I open it in ChatGPT's browser, and the app registers fifteen WebMCP tools, eleven always live, right here in the page.
+
+7
+00:00:46,150 --> 00:00:54,120
+I paste one prompt: plan me a three-hour night, best night in the next two weeks, avoiding the Moon.
+
+8
+00:00:55,170 --> 00:01:04,450
+Watch the panel. The agent ranks the nights and picks September 13th: new Moon, nine hours of darkness.
+
+9
+00:01:04,600 --> 00:01:11,200
+And the sky map moves. The agent is pointing the dome at each target while I watch.
+
+10
+00:01:12,750 --> 00:01:15,740
+Now, the part I care about.
+
+11
+00:01:15,890 --> 00:01:24,710
+I tap the sky and mark Andromeda and the Pleiades as my favorites. No typing, just a gesture on the map.
+
+12
+00:01:24,860 --> 00:01:28,850
+I ask the agent to adjust the plan around my favorites.
+
+13
+00:01:29,000 --> 00:01:32,710
+It reads my gesture through describe_current_view
+
+14
+00:01:33,060 --> 00:01:36,560
+and proposes a new plan: a ghost plan.
+
+15
+00:01:36,710 --> 00:01:42,990
+Nothing is committed until I say so. I review it item by item, and confirm.
+
+16
+00:01:46,340 --> 00:01:55,070
+And best of all, the plan is portable. I switch the site to Mauna Kea, Hawaii: a very different telescope.
+
+17
+00:01:55,220 --> 00:02:01,090
+The app flags it immediately: this plan was built for a different sky.
+
+18
+00:02:01,240 --> 00:02:13,960
+The agent revalidates it, four kept, four moved, and I export it: JSON, calendar, or a shared link that carries the whole plan.
+
+19
+00:02:15,610 --> 00:02:22,980
+Everything runs in the browser. Zero servers. All the astronomy computed locally.
+
+20
+00:02:23,130 --> 00:02:31,480
+WebMCP made this possible: the agent doesn't scrape my interface. It uses the same instrument I do.
+
+21
+00:02:33,430 --> 00:02:38,870
+So this is Roque Nights. Plan the sky with your agent.
+
+22
+00:02:39,020 --> 00:02:45,340
+Open source, live now, and built from the Roque de los Muchachos, La Palma.

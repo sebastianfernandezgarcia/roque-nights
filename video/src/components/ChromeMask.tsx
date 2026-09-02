@@ -14,6 +14,12 @@ type Props = {
   readonly right: number;
   readonly top?: number;
   readonly bottom?: number;
+  /**
+   * How tall the top plate is. The default clears the app's header bar; the closing
+   * shot passes a taller one because it is shown 1:1, so the FOV / local-time chip
+   * that sits under the header is still in frame there.
+   */
+  readonly topHeight?: number;
 };
 
 /**
@@ -22,7 +28,12 @@ type Props = {
  * Used three times: closed under the cold open, retracting under the title (the app
  * reveals itself as the wordmark settles), and closing again over the last shot.
  */
-export const ChromeMask: React.FC<Props> = ({ right, top = right, bottom = right }) => {
+export const ChromeMask: React.FC<Props> = ({
+  right,
+  top = right,
+  bottom = right,
+  topHeight = TOP_HEIGHT,
+}) => {
   const plateWidth = WIDTH * RIGHT_FRACTION;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
@@ -32,9 +43,9 @@ export const ChromeMask: React.FC<Props> = ({ right, top = right, bottom = right
           top: 0,
           left: 0,
           width: '100%',
-          height: TOP_HEIGHT,
+          height: topHeight,
           backgroundColor: C.bg,
-          transform: `translateY(${-top * TOP_HEIGHT}px)`,
+          transform: `translateY(${-top * topHeight}px)`,
         }}
       />
       <div

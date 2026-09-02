@@ -1,0 +1,179 @@
+{
+ "totalSec": 167.99,
+ "gapSec": 0.5,
+ "scenes": [
+  {
+   "scene": "coldOpen",
+   "startSec": 0.0,
+   "durationSec": 20.45,
+   "anchors": [
+    {
+     "sentence": "01",
+     "startSec": 1.4,
+     "endSec": 10.74
+    },
+    {
+     "sentence": "02",
+     "startSec": 11.24,
+     "endSec": 14.51
+    },
+    {
+     "sentence": "03",
+     "startSec": 15.01,
+     "endSec": 19.65
+    }
+   ]
+  },
+  {
+   "scene": "title",
+   "startSec": 20.45,
+   "durationSec": 14.62,
+   "anchors": [
+    {
+     "sentence": "04",
+     "startSec": 0.6,
+     "endSec": 7.78
+    },
+    {
+     "sentence": "05",
+     "startSec": 8.28,
+     "endSec": 13.72
+    }
+   ]
+  },
+  {
+   "scene": "onboarding",
+   "startSec": 35.07,
+   "durationSec": 19.6,
+   "anchors": [
+    {
+     "sentence": "06",
+     "startSec": 0.5,
+     "endSec": 10.58
+    },
+    {
+     "sentence": "07",
+     "startSec": 11.08,
+     "endSec": 18.7
+    }
+   ]
+  },
+  {
+   "scene": "agentPoints",
+   "startSec": 54.67,
+   "durationSec": 17.58,
+   "anchors": [
+    {
+     "sentence": "08",
+     "startSec": 0.5,
+     "endSec": 9.43
+    },
+    {
+     "sentence": "09",
+     "startSec": 9.93,
+     "endSec": 16.18
+    }
+   ]
+  },
+  {
+   "scene": "favorites",
+   "startSec": 72.25,
+   "durationSec": 20.51,
+   "anchors": [
+    {
+     "sentence": "10",
+     "startSec": 0.5,
+     "endSec": 3.14
+    },
+    {
+     "sentence": "11",
+     "startSec": 3.64,
+     "endSec": 12.11
+    },
+    {
+     "sentence": "12",
+     "startSec": 12.61,
+     "endSec": 16.25
+    },
+    {
+     "sentence": "13a",
+     "startSec": 16.75,
+     "endSec": 20.11
+    }
+   ]
+  },
+  {
+   "scene": "ghostPlan",
+   "startSec": 92.76,
+   "durationSec": 13.08,
+   "anchors": [
+    {
+     "sentence": "13b",
+     "startSec": 0.3,
+     "endSec": 3.45
+    },
+    {
+     "sentence": "14",
+     "startSec": 3.95,
+     "endSec": 9.88
+    }
+   ]
+  },
+  {
+   "scene": "anotherSky",
+   "startSec": 105.84,
+   "durationSec": 28.97,
+   "anchors": [
+    {
+     "sentence": "15",
+     "startSec": 0.5,
+     "endSec": 8.88
+    },
+    {
+     "sentence": "16",
+     "startSec": 9.38,
+     "endSec": 14.9
+    },
+    {
+     "sentence": "17",
+     "startSec": 15.4,
+     "endSec": 27.77
+    }
+   ]
+  },
+  {
+   "scene": "closingDome",
+   "startSec": 134.81,
+   "durationSec": 17.72,
+   "anchors": [
+    {
+     "sentence": "18",
+     "startSec": 0.8,
+     "endSec": 7.82
+    },
+    {
+     "sentence": "19",
+     "startSec": 8.32,
+     "endSec": 16.32
+    }
+   ]
+  },
+  {
+   "scene": "outro",
+   "startSec": 152.53,
+   "durationSec": 15.46,
+   "anchors": [
+    {
+     "sentence": "20",
+     "startSec": 0.9,
+     "endSec": 5.99
+    },
+    {
+     "sentence": "21",
+     "startSec": 6.49,
+     "endSec": 12.46
+    }
+   ]
+  }
+ ]
+}

@@ -1,8 +1,7 @@
 import React from 'react';
 import { Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { clipEvents, type EventKind } from '../log';
 import { C, MONO } from '../theme';
-import { FPS, SCENES } from '../timeline';
+import { FPS, MAPPED_EVENTS, type MappedEvent } from '../timeline';
 
 const IN_FRAMES = 0.15 * FPS; // 150 ms slide-in
 const HOLD_FRAMES = 2.4 * FPS; // 2.4 s hold
@@ -12,39 +11,24 @@ export const CHIP_TOTAL_FRAMES = Math.round(IN_FRAMES + HOLD_FRAMES + OUT_FRAMES
 const CHIP_HEIGHT = 40;
 const LANE_GAP = 10;
 
-type Chip = { key: string; at: number; kind: EventKind; text: string; lane: number };
+type Chip = { key: string; at: number; kind: MappedEvent['kind']; text: string; lane: number };
 
 /**
  * One chip per real `tool` / `human` event in video/public/clips/log.json.
  *
- * `atMs` is measured from the clip's first frame, so it is mapped back through the part's
- * trim, its head hold and its playback rate, and then out to an ABSOLUTE composition
- * frame. Absolute is what makes a chip survive a cut: clip 01 runs from the title into
- * the onboarding scene, and the `Copy prompt` chip lands 1.3 s before that boundary.
+ * The frames come from `MAPPED_EVENTS` in src/timeline.ts, which pushes each event's
+ * recorded millisecond through the scene's alignment segments — its trim, its held
+ * beats and its playback rate — so a chip always sits on the frame where the call
+ * actually resolves on screen. The track is one layer over the whole composition, not
+ * one per scene, so a chip can outlive a cut.
  */
 const allChips = (): Chip[] => {
-  const raw: Omit<Chip, 'lane'>[] = [];
-  for (const scene of SCENES) {
-    if (!scene.chips) continue;
-    for (const part of scene.parts) {
-      for (const event of clipEvents(part.clipId)) {
-        if (event.kind === 'note') continue;
-        const local =
-          part.fromFrame +
-          part.freezeFrames +
-          ((event.atMs / 1000 - part.clipStartSec) / part.playbackRate) * FPS;
-        // only while this part is the one on screen
-        if (local < part.fromFrame || local >= part.fromFrame + part.durationInFrames) continue;
-        raw.push({
-          key: `${scene.id}-${part.clipId}-${event.atMs}-${event.label}`,
-          at: Math.round(scene.from + local),
-          kind: event.kind,
-          text: `${event.kind === 'tool' ? 'TOOL CALL' : 'HUMAN'} · ${event.label}`,
-        });
-      }
-    }
-  }
-  raw.sort((a, b) => a.at - b.at);
+  const raw = MAPPED_EVENTS.map((e) => ({
+    key: `${e.sceneId}-${e.clipId}-${e.atMs}-${e.label}`,
+    at: e.frame,
+    kind: e.kind,
+    text: `${e.kind === 'tool' ? 'TOOL CALL' : 'HUMAN'} · ${e.label}`,
+  }));
 
   // stack overlapping chips instead of drawing them on top of each other
   const laneFreeAt: number[] = [];

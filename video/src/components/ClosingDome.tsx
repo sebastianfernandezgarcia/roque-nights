@@ -5,6 +5,9 @@ import { FPS, type Scene } from '../timeline';
 import { ChromeMask } from './ChromeMask';
 import { ClipStage } from './ClipStage';
 
+/** Clears the header AND the FOV / local-time chip under it (its box ends at y=100). */
+const CLOSING_TOP_PLATE = 112;
+
 const closeAt = (t: number, from: number, to: number) =>
   interpolate(t, [from, to], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
@@ -20,8 +23,13 @@ export const ClosingDome: React.FC<{ readonly scene: Scene }> = ({ scene }) => {
   });
   return (
     <AbsoluteFill>
-      <ClipStage parts={scene.parts} />
-      <ChromeMask right={closeAt(t, 3.5, 12.5)} top={closeAt(t, 7, 14)} bottom={closeAt(t, 7, 14)} />
+      <ClipStage segments={scene.segments} />
+      <ChromeMask
+        right={closeAt(t, 3.5, 12.5)}
+        top={closeAt(t, 7, 14)}
+        bottom={closeAt(t, 7, 14)}
+        topHeight={CLOSING_TOP_PLATE}
+      />
       {/* the frozen tail (if the scene ever outlasts the clip) fades out under this */}
       <AbsoluteFill style={{ backgroundColor: C.bg, opacity: fadeOut }} />
     </AbsoluteFill>

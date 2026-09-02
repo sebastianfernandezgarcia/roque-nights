@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Freeze, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import manifest from '../manifest.json';
 import { C, MONO, VIGNETTE, label } from '../theme';
-import { FPS, type ClipPart } from '../timeline';
+import { FPS, type ClipSegment } from '../timeline';
 
 const clipExists = (file: string): boolean =>
   (manifest.clips as Record<string, boolean | undefined>)[file] ?? false;
@@ -23,84 +23,73 @@ const MissingClip: React.FC<{ readonly file: string }> = ({ file }) => (
   </AbsoluteFill>
 );
 
-const Footage: React.FC<{ readonly part: ClipPart }> = ({ part }) => (
+const Footage: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => (
   <OffthreadVideo
-    src={staticFile(`clips/${part.file}`)}
-    trimBefore={Math.round(part.clipStartSec * FPS)}
-    playbackRate={part.playbackRate}
+    src={staticFile(`clips/${seg.file}`)}
+    trimBefore={Math.round(seg.clipStartSec * FPS)}
+    playbackRate={seg.playbackRate}
     muted
     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
   />
 );
 
 /**
- * One clip inside one scene.
+ * One alignment segment: the clip from `clipStartSec` at `playbackRate`, frozen from
+ * `freezeFromFrame` on.
  *
- * Two things make this more than an <OffthreadVideo>: the head hold (the title cuts to
- * the app's first frame and sits on it for a second) and the tail hold (when the voice
- * makes a scene longer than its clip, the last frame freezes — the clip is never sped up).
- * The Ken Burns drift sits outside both, so even a frozen frame keeps breathing.
+ * A freeze is either a held beat the solver asked for — the tour card the narration is
+ * still explaining, the Mauna Kea banner under "this plan was built for a different
+ * sky" — or the last frame of a clip that has run out. Both land on stretches the
+ * recording itself is motionless through, so the hold reads as the app sitting still,
+ * not as a stall. The Ken Burns drift sits outside the freeze, so a held dome breathes.
  */
-const Part: React.FC<{ readonly part: ClipPart }> = ({ part }) => {
+const Segment: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => {
   const frame = useCurrentFrame();
-  const scale = interpolate(frame, [0, Math.max(1, part.durationInFrames - 1)], [part.zoomFrom, part.zoomTo], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-
-  const tailLocal =
-    part.freezeTailFromFrame === null ? null : Math.max(0, part.freezeTailFromFrame - part.freezeFrames);
+  const scale = interpolate(
+    frame,
+    [0, Math.max(1, seg.durationInFrames - 1)],
+    [seg.zoomFrom, seg.zoomTo],
+    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  );
+  const freeze = seg.freezeFromFrame;
 
   return (
     <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: C.bg }}>
-      <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: part.zoomOrigin }}>
-        {!clipExists(part.file) ? (
-          <MissingClip file={part.file} />
+      <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: seg.zoomOrigin }}>
+        {!clipExists(seg.file) ? (
+          <MissingClip file={seg.file} />
+        ) : freeze === null ? (
+          <Footage seg={seg} />
         ) : (
-          <>
-            {part.freezeFrames > 0 ? (
-              <Sequence durationInFrames={part.freezeFrames} layout="none" name="hold first frame">
-                <Freeze frame={0}>
-                  <Footage part={part} />
-                </Freeze>
-              </Sequence>
-            ) : null}
-            <Sequence from={part.freezeFrames} layout="none" name={part.clipId}>
-              {tailLocal === null ? (
-                <Footage part={part} />
-              ) : (
-                <Freeze frame={tailLocal} active={(f) => f >= tailLocal}>
-                  <Footage part={part} />
-                </Freeze>
-              )}
-            </Sequence>
-          </>
+          <Freeze frame={freeze} active={(f) => f >= freeze}>
+            <Footage seg={seg} />
+          </Freeze>
         )}
       </AbsoluteFill>
-      {part.darken > 0 ? (
-        <AbsoluteFill style={{ backgroundColor: `rgba(5, 6, 10, ${part.darken})` }} />
+      {seg.darken > 0 ? (
+        <AbsoluteFill style={{ backgroundColor: `rgba(5, 6, 10, ${seg.darken})` }} />
       ) : null}
-      {part.vignette > 0 ? (
+      {seg.vignette > 0 ? (
         <AbsoluteFill
-          style={{ background: VIGNETTE, opacity: part.vignette, pointerEvents: 'none' }}
+          style={{ background: VIGNETTE, opacity: seg.vignette, pointerEvents: 'none' }}
         />
       ) : null}
     </AbsoluteFill>
   );
 };
 
-/** The screen area: the clips of one scene, a 6 px inner edge and a soft vignette. */
-export const ClipStage: React.FC<{ readonly parts: readonly ClipPart[] }> = ({ parts }) => (
+/** The screen area: the segments of one scene, a 6 px inner edge and a soft vignette. */
+export const ClipStage: React.FC<{ readonly segments: readonly ClipSegment[] }> = ({ segments }) => (
   <AbsoluteFill style={{ backgroundColor: C.bg }}>
-    {parts.map((part, i) => (
+    {segments.map((seg, i) => (
       <Sequence
-        key={`${part.clipId}-${i}`}
-        from={part.fromFrame}
-        durationInFrames={part.durationInFrames}
+        key={`${seg.clipId}-${i}`}
+        from={seg.fromFrame}
+        durationInFrames={seg.durationInFrames}
         layout="none"
-        name={part.clipId}
+        name={`${seg.clipId} · ${seg.why}`}
       >
-        <Part part={part} />
+        <Segment seg={seg} />
       </Sequence>
     ))}
     <AbsoluteFill style={{ boxShadow: `inset 0 0 0 6px ${C.edge}`, pointerEvents: 'none' }} />
