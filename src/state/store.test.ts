@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ACTIVITY_LIMIT,
   DEFAULT_FILTERS,
@@ -7,6 +7,7 @@ import {
   ROQUE_DE_LOS_MUCHACHOS,
   UNDO_TTL_MS,
   createInitialState,
+  observingNightIn,
   planIntervals,
   resetStore,
   store,
@@ -58,17 +59,36 @@ describe('initial state', () => {
     expect(s().webmcp).toEqual({ status: 'pending', toolCount: 0, toolNames: [] })
   })
 
-  it('opens on today in the site time zone with a valid UTC instant', () => {
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Atlantic/Canary',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date())
-    expect(s().nightOf).toBe(today)
+  it('opens on the observing night in the site time zone with a valid UTC instant', () => {
+    const night = observingNightIn('Atlantic/Canary')
+    expect(s().nightOf).toBe(night)
     expect(s().nightOf).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(Number.isFinite(Date.parse(s().timeUtc))).toBe(true)
     expect(s().timeUtc.endsWith('Z')).toBe(true)
+  })
+
+  it('at 01:00 local the night in progress is still the previous date', () => {
+    // 2026-09-13T00:00Z is 01:00 Canary: the middle of the night that started on
+    // the 12th, so opening on the 13th would answer about the wrong night.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-13T00:00:00Z'))
+      expect(observingNightIn('Atlantic/Canary')).toBe('2026-09-12')
+      expect(createInitialState().nightOf).toBe('2026-09-12')
+
+      // 22:00 Canary on the 12th is the same night, before midnight this time.
+      vi.setSystemTime(new Date('2026-09-12T21:00:00Z'))
+      expect(observingNightIn('Atlantic/Canary')).toBe('2026-09-12')
+      expect(createInitialState().nightOf).toBe('2026-09-12')
+
+      // Noon is the boundary: from 12:00 local the night ahead is the new date.
+      vi.setSystemTime(new Date('2026-09-13T11:30:00Z'))
+      expect(observingNightIn('Atlantic/Canary')).toBe('2026-09-13')
+      // A site without a zone reads the boundary in UTC.
+      expect(observingNightIn(null, new Date('2026-09-13T01:00:00Z'))).toBe('2026-09-12')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('createInitialState returns a fresh, unshared snapshot', () => {
@@ -217,6 +237,21 @@ describe('proposals', () => {
     expect(s().plan.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
+  it('logs the state change, not the tool name, so a tool call is not logged twice', () => {
+    const p = addThreeItemProposal()
+    s().commitProposal(p.id, { onlyAccepted: false }, 'agent')
+    expect(s().activity[0]).toMatchObject({
+      source: 'agent',
+      action: 'plan_committed',
+      detail: '3 applied, 0 skipped',
+    })
+    expect(s().activity.map((entry) => entry.action)).not.toContain('commit_proposal')
+
+    s().clearPlan('agent')
+    expect(s().activity[0].action).toBe('plan_cleared')
+    expect(s().activity.map((entry) => entry.action)).not.toContain('clear_plan')
+  })
+
   it('committing twice is idempotent and does not duplicate plan items', () => {
     const p = addThreeItemProposal()
     const first = s().commitProposal(p.id, { onlyAccepted: false }, 'agent')
@@ -277,7 +312,7 @@ describe('plan editing, clear and undo', () => {
     const ttl = Date.parse(s().undo!.expiresAt) - Date.now()
     expect(ttl).toBeGreaterThan(UNDO_TTL_MS - 5000)
     expect(ttl).toBeLessThanOrEqual(UNDO_TTL_MS)
-    expect(s().activity[0].action).toBe('clear_plan')
+    expect(s().activity[0].action).toBe('plan_cleared')
     expect(s().humanActions[0].kind).toBe('clear_plan')
 
     expect(s().undoClear(token)).toBe(true)
@@ -298,6 +333,26 @@ describe('plan editing, clear and undo', () => {
     expect(s().undoClear(second)).toBe(false)
     expect(s().plan).toHaveLength(0)
     expect(s().undo).toBeNull()
+  })
+
+  it('clearing an already empty plan keeps the live undo instead of destroying it', () => {
+    s().setPlan([planItem('a', '2026-09-02T22:00:00Z', '2026-09-02T22:45:00Z')], 'agent', 'seed')
+    const first = s().clearPlan('agent')
+    const second = s().clearPlan('agent')
+
+    expect(second).toBe(first)
+    expect(s().undo!.plan.map((i) => i.id)).toEqual(['a'])
+    expect(s().undoClear(first)).toBe(true)
+    expect(s().plan.map((i) => i.id)).toEqual(['a'])
+  })
+
+  it('an expired undo is replaced by the empty clear that follows it', () => {
+    s().setPlan([planItem('a', '2026-09-02T22:00:00Z', '2026-09-02T22:45:00Z')], 'agent', 'seed')
+    const first = s().clearPlan('agent')
+    store.setState({ undo: { ...s().undo!, expiresAt: new Date(Date.now() - 1000).toISOString() } })
+    const second = s().clearPlan('agent')
+    expect(second).not.toBe(first)
+    expect(s().undo!.plan).toEqual([])
   })
 
   it('clearPlan dismisses a pending clear_plan confirmation', () => {

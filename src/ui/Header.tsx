@@ -59,7 +59,9 @@ export function Header() {
   }
 
   return (
-    <header className="flex h-14 w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-panel-edge bg-panel px-3">
+    // min-h, never h: at 900 px and again above 1280 px the chips wrap onto a
+    // second row, and a fixed height with overflow-hidden sliced them in half.
+    <header className="flex min-h-14 w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-panel-edge bg-panel px-3 py-1.5">
       <div className="flex shrink-0 items-baseline gap-3">
         <span className="font-mono text-base font-bold tracking-[0.18em] whitespace-nowrap text-ember">
           ROQUE NIGHTS
@@ -126,11 +128,11 @@ export function Header() {
 
         <button
           type="button"
-          className={`${CHIP} hover:border-ember/50`}
+          className={`${CHIP} accent-chrome hover:border-ember/50`}
           onClick={() => toggleNightMode('human')}
           title="Red light keeps your dark adaptation. Daylight is for planning before sunset."
         >
-          <span className={nightMode ? 'text-signal' : 'text-daylight'}>
+          <span className={nightMode ? 'text-signal' : ''}>
             {nightMode ? 'RED LIGHT' : 'DAYLIGHT'}
           </span>
         </button>
@@ -144,8 +146,8 @@ export function Header() {
 function WebMCPBadge({ status, toolCount }: { status: string; toolCount: number }) {
   if (status === 'registered') {
     return (
-      <span className="flex items-center gap-2 rounded-sm border border-ember/40 bg-ember/10 px-2 py-1 text-[11px] tracking-[0.2em] text-ember uppercase">
-        <span className="h-1.5 w-1.5 rounded-full bg-ember" />
+      <span className="accent-chrome flex items-center gap-2 rounded-sm border border-ember/40 bg-ember/10 px-2 py-1 text-[11px] tracking-[0.2em] text-ember uppercase">
+        <span className="accent-dot h-1.5 w-1.5 rounded-full bg-ember" />
         WebMCP live · {toolCount} tools
       </span>
     )

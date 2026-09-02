@@ -22,8 +22,11 @@ import { DAY_MS, HOUR_MS, formatInZone, localNoonUtc, roundTo } from './time'
 const CIVIL_TWILIGHT_DEG = -6
 const NAUTICAL_TWILIGHT_DEG = -12
 const ASTRONOMICAL_TWILIGHT_DEG = -18
-/** Darkness is "usable" under a Moon this faint even when it is above the horizon. */
-const FAINT_MOON_PCT = 15
+/**
+ * A Moon this faint (illuminated fraction) stops costing the observer anything.
+ * Below it, dark time with the Moon up still counts, on a ramp: see `faintMoonWeight`.
+ */
+export const FAINT_MOON_FRACTION = 0.15
 const SAMPLE_STEP_MINUTES = 10
 const SAMPLE_STEP_MS = SAMPLE_STEP_MINUTES * 60_000
 const SAMPLE_COUNT = DAY_MS / SAMPLE_STEP_MS + 1 // 145 samples over the 24 h window
@@ -65,10 +68,16 @@ export interface NightEphemeris {
     hours: number | null
     moonFreeHours: number | null
     moonFreeIntervals: Interval[]
+    /** Moon free hours plus Moon-up dark hours weighted by `moon.faintMoonWeight`. */
     usableHours: number | null
   }
   moon: {
+    /** Illuminated fraction of the disc at the start of the night, rounded to a percent. */
     illuminationPct: number
+    /** The same fraction unrounded, 0..1: what the faint Moon weight is computed from. */
+    illuminationFraction: number
+    /** `faintMoonWeight(illuminationFraction)`: the share of Moon-up dark time counted as usable. */
+    faintMoonWeight: number
     phaseName: string
     phaseAngleDeg: number
     riseUtc: string | null
@@ -112,17 +121,38 @@ export function moonAltitudeDeg(date: Date, observer: Observer): number {
   return Horizon(date, observer, eq.ra, eq.dec, 'normal').altitude
 }
 
-/** The eight classic phase names, binned in 45 degree octants around the phase angle. */
-export function phaseName(phaseAngleDeg: number): string {
+/**
+ * How much a Moon-up minute of darkness is still worth, 0..1.
+ *
+ * A hard cliff at 15 % lit made two nights an hour apart in illumination score the
+ * same and put a 15 % Moon level with a new Moon, so the credit ramps down instead:
+ * full credit at new Moon, none from `FAINT_MOON_FRACTION` up. The argument is the
+ * unrounded illuminated fraction (0..1), never the rounded percentage.
+ */
+export function faintMoonWeight(illuminationFraction: number): number {
+  if (!Number.isFinite(illuminationFraction)) return 0
+  return Math.min(1, Math.max(0, 1 - illuminationFraction / FAINT_MOON_FRACTION))
+}
+
+/**
+ * The eight classic phase names, from the illuminated fraction plus the direction.
+ *
+ * Binning the phase angle into 45 degree octants called a 4 % crescent a "new moon"
+ * and flipped the name between two sites on the same night, because the octant edge
+ * sits at 22.5 degrees where the disc is already 4 % lit. Illumination is what an
+ * observer sees, so it decides the noun (0-2 % new, up to 45 % crescent, 45-55 %
+ * quarter, up to 98 % gibbous, above that full) and the phase angle only decides
+ * whether the Moon is waxing (0-180 degrees) or waning.
+ */
+export function phaseName(phaseAngleDeg: number, illuminationFraction: number): string {
   const angle = ((phaseAngleDeg % 360) + 360) % 360
-  if (angle < 22.5 || angle >= 337.5) return 'new moon'
-  if (angle < 67.5) return 'waxing crescent'
-  if (angle < 112.5) return 'first quarter'
-  if (angle < 157.5) return 'waxing gibbous'
-  if (angle < 202.5) return 'full moon'
-  if (angle < 247.5) return 'waning gibbous'
-  if (angle < 292.5) return 'third quarter'
-  return 'waning crescent'
+  const pct = Math.min(100, Math.max(0, illuminationFraction * 100))
+  const waxing = angle < 180
+  if (pct < 2) return 'new moon'
+  if (pct >= 98) return 'full moon'
+  if (pct < 45) return waxing ? 'waxing crescent' : 'waning crescent'
+  if (pct <= 55) return waxing ? 'first quarter' : 'third quarter'
+  return waxing ? 'waxing gibbous' : 'waning gibbous'
 }
 
 /** '28.75°N' / '24.63°S', always two decimals. */
@@ -241,8 +271,11 @@ export function computeNightEphemeris(nightOf: string, site: SiteCoords): NightE
   // Illumination is quoted for the moment the observing night begins, which is what a
   // planner cares about (and what the golden values in docs/PLAN.md were taken at).
   const illuminationRef = new Date(darknessStartMs ?? sunset?.getTime() ?? startMs + DAY_MS / 2)
-  const illuminationPct = Math.round(Illumination(Body.Moon, illuminationRef).phase_fraction * 100)
+  const illuminationFraction = Illumination(Body.Moon, illuminationRef).phase_fraction
+  const illuminationPct = Math.round(illuminationFraction * 100)
   const phaseAngleDeg = MoonPhase(illuminationRef)
+  // The rounded percentage is for reading; the weight always uses the raw fraction.
+  const moonWeight = faintMoonWeight(illuminationFraction)
 
   const moonFreeIntervals: Interval[] = []
   let moonFreeMs = 0
@@ -271,7 +304,6 @@ export function computeNightEphemeris(nightOf: string, site: SiteCoords): NightE
         moonFreeMs += sliceMs
         if (runStart === null) runStart = t
       }
-      if (!moonUp || illuminationPct <= FAINT_MOON_PCT) usableMs += sliceMs
     }
     if (runStart !== null) {
       moonFreeIntervals.push({
@@ -279,6 +311,8 @@ export function computeNightEphemeris(nightOf: string, site: SiteCoords): NightE
         endUtc: new Date(to).toISOString(),
       })
     }
+    // Dark time under a Moon that is up is worth what the ramp says it is worth.
+    usableMs = moonFreeMs + moonWeight * moonUpMs
   }
 
   const darknessMs = hasDarkness ? darknessEndMs! - darknessStartMs! : 0
@@ -308,7 +342,9 @@ export function computeNightEphemeris(nightOf: string, site: SiteCoords): NightE
     },
     moon: {
       illuminationPct,
-      phaseName: phaseName(phaseAngleDeg),
+      illuminationFraction,
+      faintMoonWeight: moonWeight,
+      phaseName: phaseName(phaseAngleDeg, illuminationFraction),
       phaseAngleDeg: roundTo(phaseAngleDeg, 2),
       riseUtc: moonRise?.toISOString() ?? null,
       setUtc: moonSet?.toISOString() ?? null,

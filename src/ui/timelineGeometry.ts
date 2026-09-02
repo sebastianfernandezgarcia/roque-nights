@@ -1,9 +1,13 @@
 /**
  * Pure geometry for the night timeline.
  *
- * The timeline maps the 24 h window of a night onto a pixel width and turns the
- * 10-minute Sun and Moon altitude samples into contiguous bands. It is pure so
- * the shape of the night can be tested without a DOM.
+ * The timeline maps a night onto a pixel width and turns the 10-minute Sun and
+ * Moon altitude samples into contiguous bands. It is pure so the shape of the
+ * night can be tested without a DOM.
+ *
+ * Two consumers, one geometry and therefore one set of twilight colours: the
+ * time slider spans the whole 24 h window, the plan timeline only the part of
+ * it anyone can observe in (see `TimelineDomain`).
  */
 
 import type { NightEphemeris } from '../astro/night'
@@ -108,13 +112,50 @@ function pushSpan(spans: Span[], x0: number, x1: number): void {
 }
 
 /**
+ * Which slice of the night the pixels cover.
+ *
+ * `window` is the full noon-to-noon window a night is defined by; the time
+ * slider uses it because the human may scrub anywhere. `observable` trims it to
+ * sunset - 1 h .. sunrise + 1 h, because two thirds of the plan timeline was
+ * flat daylight and a 30-minute block came out 13 px wide in a 380 px column.
+ */
+export type TimelineDomain = 'window' | 'observable'
+
+/** One hour of headroom either side of the Sun, for context. */
+const OBSERVABLE_MARGIN_MS = 3_600_000
+
+/** The instants the pixels span, honouring the domain and never inverted. */
+export function domainBounds(
+  night: NightEphemeris,
+  domain: TimelineDomain,
+): { startMs: number; endMs: number } {
+  const windowStart = Date.parse(night.windowStartUtc)
+  const windowEnd = Date.parse(night.windowEndUtc)
+  if (domain === 'window') return { startMs: windowStart, endMs: windowEnd }
+  const sunset = night.sun.sunsetUtc === null ? Number.NaN : Date.parse(night.sun.sunsetUtc)
+  const sunrise = night.sun.sunriseUtc === null ? Number.NaN : Date.parse(night.sun.sunriseUtc)
+  // Polar nights and polar days have no sunset or no sunrise: keep the whole
+  // window rather than invent one.
+  if (!Number.isFinite(sunset) || !Number.isFinite(sunrise)) {
+    return { startMs: windowStart, endMs: windowEnd }
+  }
+  const startMs = clamp(sunset - OBSERVABLE_MARGIN_MS, windowStart, windowEnd)
+  const endMs = clamp(sunrise + OBSERVABLE_MARGIN_MS, windowStart, windowEnd)
+  if (!(endMs > startMs)) return { startMs: windowStart, endMs: windowEnd }
+  return { startMs, endMs }
+}
+
+/**
  * Geometry of one night over `width` pixels. `width` is clamped to at least 1 px
  * so a timeline that is measured before layout still produces usable numbers.
  */
-export function timelineGeometry(night: NightEphemeris, width: number): TimelineGeometry {
+export function timelineGeometry(
+  night: NightEphemeris,
+  width: number,
+  domain: TimelineDomain = 'window',
+): TimelineGeometry {
   const pixels = Number.isFinite(width) && width > 1 ? width : 1
-  const startMs = Date.parse(night.windowStartUtc)
-  const endMs = Date.parse(night.windowEndUtc)
+  const { startMs, endMs } = domainBounds(night, domain)
   const spanMs = endMs > startMs ? endMs - startMs : 1
 
   const x = (instant: string | number | Date): number => {

@@ -2,8 +2,9 @@
  * JSON Schema fragments shared by the tools.
  *
  * Data only: no logic lives here. The descriptions are read by the agent, so
- * they carry the rules the schema cannot express (pass BOTH coordinates, pass a
- * time zone if you want local times, dates are the EVENING the night starts).
+ * they carry the rules the schema cannot express (name a catalog site or pass
+ * BOTH coordinates, pass a time zone if you want local times, dates are the
+ * EVENING the night starts).
  */
 
 export type JsonSchema = Record<string, unknown>
@@ -18,8 +19,14 @@ export const DATE_SCHEMA: JsonSchema = {
 export const SITE_SCHEMA: JsonSchema = {
   type: 'object',
   description:
-    'Observing site. Omit to use the site currently shown in the app. When you pass coordinates, pass BOTH latitude and longitude, and pass time_zone (IANA, e.g. "Pacific/Honolulu") if you want local times; without it only UTC is returned.',
+    'Observing site to compute for. Omit to use the site currently shown in the app. Otherwise name a dark-sky catalog site with id (preferred) or name, OR pass BOTH latitude and longitude, plus time_zone (IANA, e.g. "Pacific/Honolulu") if you want local times; without a zone only UTC is returned. An object that does neither comes back as invalid_site with a hint. Answering for a site here does NOT move the app: to change the site the page itself shows, submit the page form named set_observing_site (fields: site_id, latitude, longitude, elevation_m, time_zone, name).',
   properties: {
+    id: {
+      type: 'string',
+      maxLength: 40,
+      description:
+        'Dark-sky catalog id such as roque, mauna-kea, paranal; preferred over coordinates because it brings the exact elevation and IANA zone.',
+    },
     latitude: {
       type: 'number',
       minimum: -90,
@@ -34,9 +41,17 @@ export const SITE_SCHEMA: JsonSchema = {
     },
     elevation_m: { type: 'number', minimum: -430, maximum: 9000 },
     time_zone: { type: 'string', description: 'IANA time zone name.' },
-    name: { type: 'string', maxLength: 80 },
+    name: {
+      type: 'string',
+      maxLength: 80,
+      description:
+        'Catalog site name ("Mauna Kea", matched loosely) when you pass no coordinates, or the label for the coordinates when you do.',
+    },
   },
-  required: ['latitude', 'longitude'],
+  // No `required` and no top-level `anyOf`: the two valid shapes (a catalog id
+  // or name, or a latitude/longitude pair) cannot both be expressed here
+  // without constructs that strict function-calling validators reject.
+  // `resolveSite` enforces them at runtime and returns invalid_site otherwise.
   additionalProperties: false,
 }
 
@@ -61,5 +76,5 @@ export const TARGET_REF_SCHEMA: JsonSchema = {
   minLength: 1,
   maxLength: 60,
   description:
-    'Target id or name: Messier id ("M31"), planet ("Jupiter"), "Moon", or a bright star name ("Vega").',
+    'Target id or common name; matching ignores case, spaces and punctuation. Accepted: a Messier id in any spelling ("M31", "M 31", "messier 31"), the object common name or NGC designation ("Ring Nebula", "Andromeda Galaxy", "Pleiades", "NGC 7089"), a planet ("Jupiter", "Saturn"), "Moon", or a bright star ("Vega"). The Sun is not an observing target. A name that does not resolve comes back as unknown_target with the closest matches, so retry with one of those rather than guessing again.',
 }

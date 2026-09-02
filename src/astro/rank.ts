@@ -29,7 +29,7 @@ export interface NightScore {
   darkHours: number | null
   /** Hours of that darkness with the Moon below the horizon, null when there is none. */
   moonFreeHours: number | null
-  /** Moon free hours plus any dark hours under a Moon too faint to matter. */
+  /** Moon free hours plus Moon-up dark hours weighted by how faint the Moon is. */
   usableHours: number | null
   /** Moon illumination at the start of the night, percent. */
   moonIlluminationPct: number
@@ -86,10 +86,17 @@ export function rankNights(
     }
     scored.push(scoreNight(getNight(nightOf, site)))
   }
-  // Best first; nights that score the same are listed with the earlier date first,
-  // so an agent reading the top of the list gets the soonest of the equally good nights.
+  // Best first. The score is rounded to whole points, so nights tie often; a tie goes
+  // to the one with more Moon free darkness, then to the fainter Moon, and only then to
+  // the earlier date, so an agent reading the top of the list gets the truly darkest
+  // night and not merely the first one that rounded up.
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
+    const moonFree = (b.moonFreeHours ?? 0) - (a.moonFreeHours ?? 0)
+    if (Math.abs(moonFree) > 1e-9) return moonFree
+    if (a.moonIlluminationPct !== b.moonIlluminationPct) {
+      return a.moonIlluminationPct - b.moonIlluminationPct
+    }
     return a.nightOf < b.nightOf ? -1 : a.nightOf > b.nightOf ? 1 : 0
   })
   return scored
@@ -111,10 +118,11 @@ function moonClause(night: NightEphemeris): string {
     where = `above the horizon for ${moonUpHours.toFixed(1)} of the ${darkHours.toFixed(1)} dark hours`
   }
 
-  // The night ephemeris counts dark time under a very faint Moon as usable; say so,
-  // otherwise the hours look inconsistent with a Moon that is up.
-  const faintMoonCounted = usableHours > moonFreeHours + HOUR_EPSILON
-  return faintMoonCounted ? `${where} but faint enough to ignore` : where
+  // The night ephemeris counts dark time under a faint Moon as partly usable; say how
+  // much of it counted, otherwise the hours look inconsistent with a Moon that is up.
+  const weight = night.moon.faintMoonWeight
+  if (usableHours <= moonFreeHours + HOUR_EPSILON || weight <= 0) return where
+  return `${where}, and those ${moonUpHours.toFixed(1)} h count at ${Math.round(weight * 100)}% weight because it is faint`
 }
 
 function buildExplanation(night: NightEphemeris): string {

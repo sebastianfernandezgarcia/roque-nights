@@ -93,7 +93,6 @@ describe('commit_proposal', () => {
     expect(result.tools_added).toEqual([
       'get_current_plan',
       'modify_plan',
-      'clear_plan',
       'export_plan',
     ])
     expect(result.tools_removed).toEqual(['commit_proposal'])

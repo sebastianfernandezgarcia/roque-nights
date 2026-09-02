@@ -17,7 +17,7 @@ Puntuación del juez adversarial (asumiendo buena ejecución): Leverage 9 · Exe
 
 | # | Tool | Annotations | Notas |
 |---|------|-------------|-------|
-| 1 | `get_observing_conditions` ✅ | readOnly, ¬openWorld | HECHA (spike). Oscuridad astronómica, luna, horas sin luna |
+| 1 | `get_night_ephemeris` ✅ | readOnly, ¬openWorld | (Renombrada el 1-sep, era `get_observing_conditions`.) Oscuridad astronómica, luna, horas sin luna, estados polares explícitos |
 | 2 | `find_observable_targets` | readOnly, ¬openWorld | Messier+planetas filtrados; devuelve candidatos **y rechazados con motivo** |
 | 3 | `rank_nights` | readOnly, ¬openWorld | Puntúa un rango de noches por oscuridad lunar; honra AbortSignal |
 | 4 | `point_sky_map` | readOnly | Centra/resalta en la cúpula con animación (el humano LO VE) |
@@ -25,9 +25,9 @@ Puntuación del juez adversarial (asumiendo buena ejecución): Leverage 9 · Exe
 | 6 | `describe_current_view` | readOnly | **Página→agente**: centro/FOV del mapa, selección, filtros, ring buffer de ~20 acciones humanas |
 | 7 | `propose_plan` | — | Plan FANTASMA punteado con badge "proposed by agent" → `proposal_id` |
 | 8 | `commit_proposal` | — | Aplica; el humano también acepta/rechaza ítem a ítem y el motivo vuelve al agente |
-| 9 | `modify_plan` | idempotent | UNA tool para add/remove/reorder (operaciones en batch) |
+| 9 | `modify_plan` | ¬idempotent (`add` crea un bloque nuevo cada vez) | UNA tool para add/remove/move/note/reorder (operaciones en batch); contextual, solo con plan |
 | 10 | `get_current_plan` | readOnly | Estado del plan con horarios óptimos |
-| 11 | `clear_plan` | **destructive**, ¬idempotent | Requiere `confirm:true`; devuelve token de undo |
+| 11 | `clear_plan` | **destructive**, ¬idempotent | Requiere `confirm:true`; devuelve token de undo. Siempre registrada (si fuera contextual, el undo sería inalcanzable con el plan vacío) |
 | 12 | `export_plan` | readOnly | .ics + CSV + **schema abierto `observing-plan.v1.json`** publicado en el propio sitio |
 | 13 | `import_plan` | — | **LA PALANCA MÁXIMA**: importa el plan de otro observador (URL) y lo REVALIDA para el cielo/latitud local devolviendo diff con motivos |
 | 14 | `compare_dark_sky_sites` | readOnly, **openWorld** | ~20 sitios Starlight del mundo + nubes de Open-Meteo en UNA petición multi-coordenada |

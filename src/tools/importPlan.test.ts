@@ -83,6 +83,9 @@ describe('import_plan declaration', () => {
     expect(importPlanTool.name).toBe('import_plan')
     expect(importPlanTool.annotations?.readOnlyHint).toBe(false)
     expect(importPlanTool.annotations?.idempotentHint).toBe(false)
+    // It only creates a ghost proposal, so it must say it is not destructive:
+    // that hint defaults to true whenever readOnlyHint is false.
+    expect(importPlanTool.annotations?.destructiveHint).toBe(false)
   })
 
   it('tells the agent what it accepts and that nothing is committed', () => {

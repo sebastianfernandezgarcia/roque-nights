@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getTarget } from '../astro/catalog'
 import {
@@ -14,7 +14,7 @@ import {
 import type { SiteCoords } from '../astro/sky'
 import { buildScene } from './scene'
 import type { Scene } from './scene'
-import { dragToView, hitTest, wheelToFov } from './interaction'
+import { dragToView, hitTest, trailingBurst, wheelToFov } from './interaction'
 
 const ROQUE: SiteCoords = {
   latitude: 28.7542,
@@ -191,5 +191,51 @@ describe('wheelToFov', () => {
 
   it('is symmetric: zooming in and back out returns to the start', () => {
     expect(wheelToFov(wheelToFov(60, -120), 120)).toBeCloseTo(60, 6)
+  })
+})
+
+describe('trailingBurst', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('fires once, after the last notch of a burst', () => {
+    let fired = 0
+    const burst = trailingBurst(400, () => {
+      fired += 1
+    })
+    burst.bump()
+    vi.advanceTimersByTime(300)
+    burst.bump()
+    vi.advanceTimersByTime(300)
+    burst.bump()
+    expect(fired).toBe(0)
+    vi.advanceTimersByTime(399)
+    expect(fired).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(fired).toBe(1)
+  })
+
+  it('reads the value at the END of the burst, not at its start', () => {
+    let fov = 140
+    const seen: number[] = []
+    const burst = trailingBurst(400, () => seen.push(fov))
+    for (const next of [130, 125, 120, 118.6]) {
+      fov = next
+      burst.bump()
+      vi.advanceTimersByTime(50)
+    }
+    vi.advanceTimersByTime(400)
+    expect(seen).toEqual([118.6])
+  })
+
+  it('cancel stops a pending entry, so an unmount logs nothing', () => {
+    let fired = 0
+    const burst = trailingBurst(400, () => {
+      fired += 1
+    })
+    burst.bump()
+    burst.cancel()
+    vi.advanceTimersByTime(2000)
+    expect(fired).toBe(0)
   })
 })

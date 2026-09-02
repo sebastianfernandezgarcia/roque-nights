@@ -39,6 +39,25 @@ describe('the declaration an agent reads', () => {
       idempotentHint: true,
     })
     expect(findObservableTargetsTool.description).toMatch(/REJECTED and why/)
+    expect(findObservableTargetsTool.description).toContain(
+      'Bright stars are included only when you ask for them',
+    )
+    expect(findObservableTargetsTool.description).toContain('data.filters_used')
+  })
+
+  it('promises no default for the filters it takes from the app', () => {
+    const properties = (
+      findObservableTargetsTool.inputSchema as {
+        properties: Record<string, { default?: unknown; description: string }>
+      }
+    ).properties
+    for (const field of ['min_altitude_deg', 'min_moon_separation_deg', 'max_magnitude', 'types']) {
+      expect(properties[field].default).toBeUndefined()
+      expect(properties[field].description).toMatch(/app/)
+    }
+    // The two that really are fixed still declare their default.
+    expect(properties.min_window_minutes.default).toBe(45)
+    expect(properties.limit.default).toBe(12)
   })
 
   it('has an input schema Ajv accepts and that closes the door on extra keys', () => {
@@ -162,6 +181,63 @@ describe('narrowing the search', () => {
     store.setState({ filters: { ...DEFAULT_FILTERS, minAltDeg: 70 } })
     const result = expectOk(await call({ min_altitude_deg: 25 }))
     expect(result.data.filters_used.min_altitude_deg).toBe(25)
+  })
+
+  it('echoes the Moon separation the app is set to, without a schema default', async () => {
+    store.setState({ filters: { ...DEFAULT_FILTERS, minMoonSepDeg: 55 } })
+    const result = expectOk(await call())
+    expect(result.data.filters_used.min_moon_separation_deg).toBe(55)
+    expect(expectOk(await call({ min_moon_separation_deg: 10 })).data.filters_used
+      .min_moon_separation_deg).toBe(10)
+  })
+
+  it('the magnitude limit reaches the planets, which carry no catalog magnitude', async () => {
+    const result = expectOk(await call({ max_magnitude: 6, limit: 40 }))
+    const ids = result.data.candidates.map((c) => c.id)
+    expect(ids).not.toContain('neptune')
+    expect(ids).not.toContain('uranus')
+    expect(result.rejected.find((r) => r.id === 'neptune')?.reason).toMatch(
+      /fainter than magnitude limit/,
+    )
+    for (const candidate of result.data.candidates) {
+      expect(candidate.magnitude === null || candidate.magnitude <= 6).toBe(true)
+    }
+
+    // And a planet reports the brightness it actually has that night.
+    const saturn = expectOk(await call({ ids: ['Saturn'] })).data.candidates[0]
+    expect(saturn.id).toBe('saturn')
+    expect(saturn.magnitude).not.toBeNull()
+    expect(saturn.magnitude!).toBeLessThan(2)
+  })
+
+  it('keeps bright stars out of the default scan and says so', async () => {
+    const byDefault = expectOk(await call({ limit: 40 }))
+    expect(byDefault.data.candidates.some((c) => c.type === 'star')).toBe(false)
+    expect(byDefault.caveats.join(' ')).toContain('Bright stars were not scanned')
+
+    const asked = expectOk(await call({ types: ['star'], limit: 40 }))
+    expect(asked.data.candidates.some((c) => c.type === 'star')).toBe(true)
+    expect(asked.caveats.join(' ')).not.toContain('Bright stars were not scanned')
+
+    const named = expectOk(await call({ ids: ['Vega'] }))
+    expect(named.data.candidates.map((c) => c.id)).toEqual(['star:vega'])
+  })
+})
+
+describe('a Moon soaked night', () => {
+  it('warns that a bright Moon is up and quotes the usable hours', async () => {
+    // 2026-09-26 at the Roque: full Moon above the horizon through the darkness.
+    const result = expectOk(await call({ date: '2026-09-26', limit: 5 }))
+    const caveat = result.caveats.find((c) => c.startsWith('The Moon is'))
+    expect(caveat).toBeDefined()
+    expect(caveat!).toMatch(/The Moon is \d+% lit and above the horizon for \d+% of the darkness/)
+    expect(caveat!).toMatch(/leaving \d+\.\d h usable out of \d+\.\d h of darkness/)
+    expect(result.data.candidates[0].moon_up_fraction).toBe(1)
+
+    // A new Moon night says nothing about the Moon.
+    const dark = expectOk(await call({ date: '2026-09-12', limit: 5 }))
+    expect(dark.caveats.some((c) => c.startsWith('The Moon is'))).toBe(false)
+    expect(dark.data.candidates[0].moon_up_fraction).toBe(0)
   })
 })
 

@@ -178,6 +178,38 @@ describe('fetchNightWeather falling back to the baked snapshot', () => {
     expect(weather.roque?.source).toBe('cached')
   })
 
+  it('degrades to the snapshot when hourly.time holds something that is not a time', async () => {
+    // A payload that parses as JSON but puts numbers (or nulls) in hourly.time used
+    // to throw out of the module, which the demo can never afford.
+    const broken = {
+      hourly: {
+        time: [1, 2, 3, null],
+        cloud_cover: [10, 10, 10, 10],
+      },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(broken), { status: 200 })),
+    )
+    const weather = await fetchNightWeather([THREE_SITES[0]], DARKNESS)
+    expect(weather.roque?.source).toBe('cached')
+    expect(weather.roque?.note).toMatch(/cached/i)
+  })
+
+  it('degrades to the snapshot when a series is not an array at all', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ hourly: { time: ['2026-09-02T21:00'], cloud_cover: 42 } }), {
+            status: 200,
+          }),
+      ),
+    )
+    const weather = await fetchNightWeather([THREE_SITES[0]], DARKNESS)
+    expect(weather.roque?.source).toBe('cached')
+  })
+
   it('returns null for a site the snapshot never saw', async () => {
     vi.stubGlobal(
       'fetch',

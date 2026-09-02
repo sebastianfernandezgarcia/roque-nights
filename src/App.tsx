@@ -28,11 +28,12 @@ import { PlanPanel } from './ui/PlanPanel'
 import { TimeSlider } from './ui/TimeSlider'
 
 /**
- * A share link is imported once per page load. StrictMode runs effects twice in
- * development and the hash is cleared before the first await, but a module flag
- * makes the guarantee independent of that ordering.
+ * Every share link this tab has already opened. StrictMode runs effects twice in
+ * development and the hash is cleared before the first await, but a module set
+ * makes the guarantee independent of that ordering, and it also means pasting
+ * the same link into the address bar twice imports it once.
  */
-let sharedPlanConsumed = false
+const importedPlanHashes = new Set<string>()
 
 /**
  * Open a `#plan=...` link the way the agent's tool does, then show the human
@@ -64,15 +65,28 @@ async function importSharedPlan(href: string): Promise<void> {
   })
 }
 
+/**
+ * Open the `#plan=` currently in the address bar, if there is one this tab has
+ * not opened yet. Used on mount AND on `hashchange`: a share link pasted into a
+ * tab that already has this page open never reloads it, and until now that link
+ * did nothing at all.
+ */
+function consumeSharedPlanHash(): void {
+  const hash = window.location.hash
+  if (!hash.startsWith(PLAN_HASH_PREFIX)) return
+  if (importedPlanHashes.has(hash)) return
+  importedPlanHashes.add(hash)
+  const href = window.location.href
+  // Drop the hash first: a reload must not import the same plan again.
+  window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  void importSharedPlan(href)
+}
+
 export default function App() {
   useEffect(() => {
-    if (sharedPlanConsumed) return
-    if (!window.location.hash.startsWith(PLAN_HASH_PREFIX)) return
-    sharedPlanConsumed = true
-    const href = window.location.href
-    // Drop the hash first: a reload must not import the same plan again.
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
-    void importSharedPlan(href)
+    consumeSharedPlanHash()
+    window.addEventListener('hashchange', consumeSharedPlanHash)
+    return () => window.removeEventListener('hashchange', consumeSharedPlanHash)
   }, [])
 
   return (
@@ -81,7 +95,9 @@ export default function App() {
 
       <main className="grid grid-cols-1 gap-3 p-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="flex min-w-0 flex-col gap-3 lg:min-h-0">
-          <div className="relative aspect-square min-h-0 overflow-hidden rounded-sm border border-panel-edge bg-abyss lg:aspect-auto lg:flex-1">
+          {/* Stacked, the square dome would fill the whole width and push the
+              time slider and every panel below the fold. */}
+          <div className="relative aspect-square max-h-[55svh] min-h-0 overflow-hidden rounded-sm border border-panel-edge bg-abyss lg:aspect-auto lg:max-h-none lg:flex-1">
             <SkyMap />
           </div>
           <TimeSlider />

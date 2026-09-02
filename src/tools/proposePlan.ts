@@ -53,7 +53,8 @@ const INPUT_SCHEMA = {
       type: 'array',
       minItems: 1,
       maxItems: MAX_TARGETS,
-      description: 'The targets to fit into tonight, in any order; the app schedules them.',
+      description:
+        'The targets to fit into the night currently selected in the app, in any order; the app schedules them.',
       items: {
         type: 'object',
         properties: {
@@ -302,7 +303,7 @@ function run(input: Record<string, unknown>): ToolResult<ProposePlanData> {
 export const proposePlanTool: ModelContextToolDefinition = defineTool<ProposePlanData>({
   name: 'propose_plan',
   title: 'Propose a ghost observing plan',
-  description: `Use this to propose an observing plan WITHOUT applying it. The proposal appears on the person's night timeline as a dotted "proposed by agent" ghost plan they can accept or reject item by item (with a reason you can read back). Give targets by id or name, optionally a duration per target and a rationale; the app schedules each target inside its visibility window during astronomical darkness, avoiding overlaps with the existing plan, and returns the proposal_id, the scheduled items with times (UTC and local) and the targets it could NOT fit with reasons. Nothing changes in the committed plan until commit_proposal is called or the person clicks Accept.`,
+  description: `Use this to propose an observing plan WITHOUT applying it. The proposal appears on the person's night timeline as a dotted "proposed by agent" ghost plan they can accept or reject item by item (with a reason you can read back). Give targets by id or name, optionally a duration per target and a rationale; the app schedules each target inside its visibility window during astronomical darkness, avoiding overlaps with the existing plan, and returns the proposal_id, the scheduled items with times (UTC and local) and the targets it could NOT fit with reasons. Nothing changes in the committed plan until commit_proposal is called or the person clicks Accept. This tool has NO date and NO site argument: it always plans the night and the site currently selected in the app, echoed back as data.night_of. To plan a different night, call set_observing_time with { "date": "YYYY-MM-DD" } FIRST, then call this.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,

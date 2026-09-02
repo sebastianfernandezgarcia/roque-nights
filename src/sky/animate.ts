@@ -15,6 +15,28 @@ import type { SkyViewState } from '../state/types'
 /** Default swing, long enough to read as a move and short enough not to annoy. */
 export const DEFAULT_ANIMATION_MS = 1200
 
+/** How long the agent's reticle rings for, once the dome has stopped moving. */
+export const RETICLE_MS = 900
+
+/**
+ * The reticle phase for a swing that started `elapsedMs` ago.
+ *
+ * The mark says "the agent put THIS in the middle of your screen", so it may not
+ * be drawn until the middle of the screen actually holds the target: while the
+ * dome is still easing round, this returns 1, which `drawReticle` treats as
+ * nothing to draw. Afterwards it walks 0 to 1 across `pulseMs`.
+ */
+export function reticlePhase(
+  elapsedMs: number,
+  swingMs: number = DEFAULT_ANIMATION_MS,
+  pulseMs: number = RETICLE_MS,
+): number {
+  if (!Number.isFinite(elapsedMs)) return 1
+  const t = (elapsedMs - swingMs) / pulseMs
+  if (t < 0) return 1
+  return t >= 1 ? 1 : t
+}
+
 /** The bits of the environment the animator needs, so tests can hand it a fake. */
 export interface AnimatorClock {
   now(): number

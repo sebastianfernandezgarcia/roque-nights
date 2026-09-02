@@ -86,7 +86,7 @@ describe('export_plan', () => {
     const result = asOk(await run())
     expect(result.data.format).toBe('json')
     expect(result.data.item_count).toBe(2)
-    expect(result.data.filename).toBe('roque-nights-2026-09-12.json')
+    expect(result.data.filename).toBe('roque-nights-plan-2026-09-12.json')
 
     const parsed = parseObservingPlanV1(result.data.content)
     if ('error' in parsed) throw new Error(parsed.error)
@@ -114,7 +114,7 @@ describe('export_plan', () => {
 
   it('exports a calendar with one event per item', async () => {
     const result = asOk(await run({ format: 'ics' }))
-    expect(result.data.filename).toBe('roque-nights-2026-09-12.ics')
+    expect(result.data.filename).toBe('roque-nights-plan-2026-09-12.ics')
     expect(result.data.content).toContain('BEGIN:VCALENDAR')
     expect(result.data.content.split('\r\n').filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(2)
     expect(result.data.content).toContain('DTSTART:20260912T220000Z')
@@ -122,7 +122,7 @@ describe('export_plan', () => {
 
   it('exports a CSV with a header and one row per item', async () => {
     const result = asOk(await run({ format: 'csv' }))
-    expect(result.data.filename).toBe('roque-nights-2026-09-12.csv')
+    expect(result.data.filename).toBe('roque-nights-plan-2026-09-12.csv')
     const rows = result.data.content.split('\n')
     expect(rows[0]).toBe('target_id,name,start_utc,end_utc,start_local,end_local,note,source')
     expect(rows).toHaveLength(3)

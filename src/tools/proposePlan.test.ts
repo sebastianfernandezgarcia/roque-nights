@@ -58,6 +58,17 @@ describe('propose_plan declaration', () => {
     )
   })
 
+  it('says which night it plans and how to plan another one', () => {
+    // "plan me Saturday" must not silently schedule the night the app is on.
+    expect(proposePlanTool.description).toContain('NO date and NO site argument')
+    expect(proposePlanTool.description).toContain('set_observing_time')
+    const schema = proposePlanTool.inputSchema as {
+      properties: { targets: { description: string } }
+    }
+    expect(schema.properties.targets.description).toContain('currently selected in the app')
+    expect(schema.properties.targets.description).not.toContain('tonight')
+  })
+
   it('has an input schema Ajv compiles that pins the target list', () => {
     const validate = ajv.compile(proposePlanTool.inputSchema as object)
     expect(validate({ targets: [{ target: 'M31' }] })).toBe(true)

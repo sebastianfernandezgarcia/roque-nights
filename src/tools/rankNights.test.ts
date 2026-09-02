@@ -41,6 +41,11 @@ describe('the declaration an agent reads', () => {
       idempotentHint: true,
     })
     expect(rankNightsTool.description).toMatch(/instead of calling get_night_ephemeris in a loop/)
+    // The playbook prompt is "which night is best here? Set the app to it", so
+    // the description has to say the tool does not do the second half.
+    expect(rankNightsTool.description).toContain('Read-only: it does not move the app')
+    expect(rankNightsTool.description).toContain('set_observing_time')
+    expect(rankNightsTool.description).toMatch(/from_date and to_date are both required/)
   })
 
   it('has an input schema Ajv accepts, with both dates required', () => {

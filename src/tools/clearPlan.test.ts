@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { UNDO_TTL_MS, resetStore, store } from '../state/store'
 import type { PlanItem } from '../state/types'
 import { CLEAR_PLAN_CONFIRMATION_MESSAGE, clearPlanTool } from './clearPlan'
+import { BASE_TOOL_NAMES, PLAN_TOOL_NAMES } from './contextualNames'
 import type { ClearPlanData } from './clearPlan'
 import type { ToolError, ToolOk } from './envelope'
 
@@ -71,6 +72,15 @@ describe('clear_plan declaration', () => {
     )
   })
 
+  it('promises an undo it can still deliver: the tool is not contextual', () => {
+    expect(clearPlanTool.description).toContain('undo_token')
+    expect(clearPlanTool.description).toContain(
+      'Stays registered when the plan is empty so the undo is always reachable',
+    )
+    expect(BASE_TOOL_NAMES).toContain('clear_plan')
+    expect(PLAN_TOOL_NAMES).not.toContain('clear_plan')
+  })
+
   it('has an input schema Ajv compiles with only confirm and undo_token', () => {
     const validate = ajv.compile(clearPlanTool.inputSchema as object)
     expect(validate({})).toBe(true)
@@ -125,7 +135,6 @@ describe('clear_plan with confirm', () => {
     expect(result.tools_removed).toEqual([
       'get_current_plan',
       'modify_plan',
-      'clear_plan',
       'export_plan',
     ])
     expect(result.summary).toContain('Cleared 2 items')
@@ -153,7 +162,6 @@ describe('clear_plan with undo_token', () => {
     expect(restored.tools_added).toEqual([
       'get_current_plan',
       'modify_plan',
-      'clear_plan',
       'export_plan',
     ])
     expect(restored.summary).toContain('Restored 2 items')

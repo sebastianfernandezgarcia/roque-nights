@@ -53,13 +53,11 @@ describe('tool name tables', () => {
     const all = [...BASE_TOOL_NAMES, ...PLAN_TOOL_NAMES, ...PROPOSAL_TOOL_NAMES]
     expect(all).toHaveLength(14)
     expect(new Set(all).size).toBe(14)
-    expect(BASE_TOOL_NAMES).toHaveLength(9)
-    expect(PLAN_TOOL_NAMES).toEqual([
-      'get_current_plan',
-      'modify_plan',
-      'clear_plan',
-      'export_plan',
-    ])
+    expect(BASE_TOOL_NAMES).toHaveLength(10)
+    // clear_plan is base, not contextual: it hands out the undo token, so it
+    // has to survive the clear that empties the plan.
+    expect(BASE_TOOL_NAMES).toContain('clear_plan')
+    expect(PLAN_TOOL_NAMES).toEqual(['get_current_plan', 'modify_plan', 'export_plan'])
     expect(PROPOSAL_TOOL_NAMES).toEqual(['commit_proposal'])
   })
 })
@@ -69,7 +67,8 @@ describe('contextualToolNames', () => {
     expect(hasPlan(EMPTY)).toBe(false)
     expect(hasPendingProposal(EMPTY)).toBe(false)
     expect(contextualToolNames(EMPTY)).toEqual([])
-    expect(currentToolNames(EMPTY)).toHaveLength(9)
+    expect(currentToolNames(EMPTY)).toHaveLength(10)
+    expect(currentToolNames(EMPTY)).toContain('clear_plan')
   })
 
   it('adds the plan tools while a plan exists', () => {
@@ -79,7 +78,7 @@ describe('contextualToolNames', () => {
 
   it('adds commit_proposal while a proposal is pending', () => {
     expect(contextualToolNames(WITH_PROPOSAL)).toEqual(['commit_proposal'])
-    expect(currentToolNames(WITH_PROPOSAL)).toHaveLength(10)
+    expect(currentToolNames(WITH_PROPOSAL)).toHaveLength(11)
   })
 
   it('adds both when the app has a plan and a pending proposal', () => {

@@ -311,6 +311,43 @@ describe('findObservableTargets', () => {
     expect(byQuery.candidates.length + byQuery.rejected.length).toBe(1)
   })
 
+  it('applies the magnitude limit to planets, which carry no catalog magnitude', () => {
+    const bright = findObservableTargets(night, ROQUE, { maxMag: 6, limit: 500 })
+    const ids = bright.candidates.map((c) => c.target.id)
+    expect(ids).not.toContain('neptune')
+    expect(ids).not.toContain('uranus')
+    const neptune = bright.rejected.find((x) => x.id === 'neptune')
+    expect(neptune?.reason).toMatch(/^fainter than magnitude limit \(7\.\d+ > 6\)$/)
+    // Every candidate reports the magnitude the filter was applied to, planets included.
+    for (const candidate of bright.candidates) {
+      expect(candidate.magnitude === null || candidate.magnitude <= 6).toBe(true)
+    }
+    const saturn = findObservableTargets(night, ROQUE, { ids: ['saturn'], limit: 5 })
+    const saturnVisibility = saturn.candidates[0] ?? saturn.rejected[0]
+    expect(saturnVisibility).toBeDefined()
+    expect(getTarget('saturn')!.mag).toBeNull()
+    expect(saturn.candidates[0]?.magnitude ?? 0).toBeLessThan(2)
+  })
+
+  it('leaves bright stars out of the default scan and brings them back on request', () => {
+    const byDefault = findObservableTargets(night, ROQUE, { limit: 500 })
+    expect(byDefault.starsExcluded).toBe(true)
+    expect(byDefault.candidates.some((c) => c.target.type === 'star')).toBe(false)
+    expect(byDefault.rejected.some((x) => x.id.startsWith('star:'))).toBe(false)
+
+    const asked = findObservableTargets(night, ROQUE, { types: ['star'], limit: 500 })
+    expect(asked.starsExcluded).toBe(false)
+    expect(asked.candidates.some((c) => c.target.type === 'star')).toBe(true)
+
+    const byId = findObservableTargets(night, ROQUE, { ids: ['star:vega'], limit: 5 })
+    expect(byId.starsExcluded).toBe(false)
+    expect(byId.candidates.length + byId.rejected.length).toBe(1)
+
+    const byQuery = findObservableTargets(night, ROQUE, { query: 'vega', limit: 5 })
+    expect(byQuery.starsExcluded).toBe(false)
+    expect(byQuery.candidates.length + byQuery.rejected.length).toBe(1)
+  })
+
   it('no darkness → every fixed target rejected with the darkness reason', () => {
     const tromso = computeNightEphemeris('2026-06-21', TROMSO)
     const r = findObservableTargets(tromso, TROMSO, {})

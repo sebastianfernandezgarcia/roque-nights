@@ -42,6 +42,74 @@ function recordingContext(): { ctx: CanvasRenderingContext2D; calls: string[] } 
   return { ctx: proxy as unknown as CanvasRenderingContext2D, calls }
 }
 
+/**
+ * A recorder that keeps the ARGUMENTS as well as the call names, plus every
+ * property assignment, so a test can ask what colour something was painted in
+ * and where the text landed.
+ */
+function detailedContext(): {
+  ctx: CanvasRenderingContext2D
+  calls: { name: string; args: unknown[]; fillStyle: unknown; strokeStyle: unknown; lineDash: unknown }[]
+  sets: { property: string; value: unknown }[]
+} {
+  const calls: {
+    name: string
+    args: unknown[]
+    fillStyle: unknown
+    strokeStyle: unknown
+    lineDash: unknown
+  }[] = []
+  const sets: { property: string; value: unknown }[] = []
+  let lineDash: unknown = []
+  const target: Record<string, unknown> = {
+    canvas: { width: 1600, height: 1600 },
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    // 6 px per character: close enough to 10 px IBM Plex Mono for a layout test.
+    measureText: (text: string) => ({ width: String(text).length * 6 }),
+    setLineDash: (value: unknown) => {
+      lineDash = value
+    },
+    save: () => {},
+    restore: () => {},
+  }
+  const proxy = new Proxy(target, {
+    get(store, property: string) {
+      if (property in store) {
+        const value = store[property]
+        if (typeof value === 'function' && property !== 'measureText') {
+          return (...args: unknown[]) => {
+            calls.push({
+              name: property,
+              args,
+              fillStyle: store.fillStyle,
+              strokeStyle: store.strokeStyle,
+              lineDash,
+            })
+            return (value as (...a: unknown[]) => unknown)(...args)
+          }
+        }
+        return value
+      }
+      return (...args: unknown[]) => {
+        calls.push({
+          name: property,
+          args,
+          fillStyle: store.fillStyle,
+          strokeStyle: store.strokeStyle,
+          lineDash,
+        })
+      }
+    },
+    set(store, property: string, value) {
+      store[property] = value
+      sets.push({ property, value })
+      return true
+    },
+  })
+  return { ctx: proxy as unknown as CanvasRenderingContext2D, calls, sets }
+}
+
 class FakePath {
   moveTo(): void {}
   lineTo(): void {}
@@ -189,6 +257,130 @@ describe('renderSky', () => {
           proposedIds: new Set(),
         }),
       ).not.toThrow()
+    })
+  })
+})
+
+/** Names are only drawn below a 120 degree field: the whole dome is too busy. */
+function narrowScene(): Scene {
+  return buildScene({
+    site: ROQUE,
+    timeUtc: '2026-09-02T23:00:00Z',
+    view: { centerAltDeg: 50, centerAzDeg: 90, fovDeg: 60 },
+    width: 800,
+    height: 800,
+    maxStarMag: 6,
+  })
+}
+
+describe('what the frame actually paints', () => {
+  const withFakePath = (run: () => void): void => {
+    const original = (globalThis as { Path2D?: unknown }).Path2D
+    ;(globalThis as { Path2D?: unknown }).Path2D = FakePath
+    try {
+      run()
+    } finally {
+      ;(globalThis as { Path2D?: unknown }).Path2D = original
+    }
+  }
+
+  it('never sets a canvas blur filter: the Milky Way is feathered with strokes', () => {
+    withFakePath(() => {
+      const { ctx, sets } = detailedContext()
+      renderSky(ctx, scene(), style)
+      expect(sets.filter((entry) => entry.property === 'filter')).toEqual([])
+    })
+  })
+
+  it('marks a favourite with a dashed ring on the object, not a glyph beside it', () => {
+    withFakePath(() => {
+      const { ctx, calls } = detailedContext()
+      renderSky(ctx, scene(), { ...style, favoriteIds: new Set(['saturn']) })
+      expect(calls.some((c) => c.name === 'fillText' && c.args[0] === '✦')).toBe(false)
+      const dashedRings = calls.filter(
+        (c) =>
+          c.name === 'arc' &&
+          Array.isArray(c.lineDash) &&
+          (c.lineDash as number[]).length === 2 &&
+          typeof c.strokeStyle === 'string' &&
+          (c.strokeStyle as string).includes('255, 180, 84'),
+      )
+      expect(dashedRings.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('warms the ground and the whole frame in red light, and neither out of it', () => {
+    withFakePath(() => {
+      const night = detailedContext()
+      renderSky(night.ctx, scene(), { ...style, nightMode: true })
+      // A warm fill LAID ON the near black ground (a multiply there does
+      // nothing), then a multiply over the whole frame.
+      const ground = night.calls.filter(
+        (c) => c.name === 'fill' && c.fillStyle === 'rgba(150, 40, 20, 0.16)',
+      )
+      const frame = night.calls.filter(
+        (c) => c.name === 'fillRect' && c.fillStyle === 'rgba(255, 214, 190, 0.14)',
+      )
+      expect(ground).toHaveLength(1)
+      expect(frame).toHaveLength(1)
+
+      const day = detailedContext()
+      renderSky(day.ctx, scene(), { ...style, nightMode: false })
+      expect(
+        day.calls.some((c) => String(c.fillStyle ?? '').includes('255, 214, 190')),
+      ).toBe(false)
+      expect(day.calls.some((c) => String(c.fillStyle ?? '').includes('150, 40, 20'))).toBe(false)
+    })
+  })
+
+  it('drops a constellation name that collides with an object label', () => {
+    withFakePath(() => {
+      // A single object at the exact spot a constellation label wants: one of
+      // the two texts has to go, and it must not be the object.
+      const built = narrowScene()
+      const constellation = built.constellations.find((c) => c.label)
+      expect(constellation).toBeDefined()
+      const label = constellation!.label!
+      const object = { ...built.objects.find((o) => o.kind === 'messier')! }
+      object.x = label.x
+      object.y = label.y + 4
+      const collided: Scene = {
+        ...built,
+        constellations: [constellation!],
+        objects: [object],
+        stars: [],
+      }
+      const { ctx, calls } = detailedContext()
+      renderSky(ctx, collided, {
+        ...style,
+        selectedId: object.id,
+        highlightedIds: new Set(),
+        favoriteIds: new Set(),
+        planIds: new Map(),
+        proposedIds: new Set(),
+      })
+      const texts = calls.filter((c) => c.name === 'fillText').map((c) => String(c.args[0]))
+      expect(texts).toContain(object.id)
+      expect(texts).not.toContain(constellation!.name.toUpperCase())
+    })
+  })
+
+  it('still writes the constellation name when nothing is in its way', () => {
+    withFakePath(() => {
+      const built = narrowScene()
+      const constellation = built.constellations.find((c) => c.label)!
+      const alone: Scene = { ...built, constellations: [constellation], objects: [], stars: [] }
+      const { ctx, calls } = detailedContext()
+      renderSky(ctx, alone, {
+        ...style,
+        selectedId: null,
+        highlightedIds: new Set(),
+        favoriteIds: new Set(),
+        planIds: new Map(),
+        proposedIds: new Set(),
+      })
+      const texts = calls.filter((c) => c.name === 'fillText').map((c) => String(c.args[0]))
+      expect(texts).toContain(constellation.name.toUpperCase())
     })
   })
 })

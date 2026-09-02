@@ -260,6 +260,63 @@ describe('parseObservingPlanV1', () => {
     ).toMatch(/site/i)
   })
 
+  it('caps every string at the length the published schema declares', () => {
+    const long = (n: number) => 'x'.repeat(n)
+    const plan = asPlan(
+      parseObservingPlanV1(
+        JSON.stringify({
+          version: 1,
+          generator: long(500),
+          author: long(500),
+          created_at: 'whenever',
+          site: { name: long(1000), latitude: 40.4168, longitude: -3.7038 },
+          night_of: '2026-09-12',
+          items: [
+            {
+              target_id: long(200),
+              name: long(1000),
+              note: long(5000),
+              start_utc: '2026-09-12T21:00:00Z',
+              end_utc: '2026-09-12T21:45:00Z',
+            },
+          ],
+        }),
+      ),
+    )
+    expect(plan.site.name).toHaveLength(120)
+    expect(plan.generator).toHaveLength(80)
+    expect(plan.author).toHaveLength(80)
+    expect(plan.items[0].target_id).toHaveLength(60)
+    expect(plan.items[0].name).toHaveLength(120)
+    expect(plan.items[0].note).toHaveLength(500)
+    // A created_at that is not a UTC instant is replaced, not echoed back.
+    expect(plan.created_at).not.toBe('whenever')
+    expect(Date.parse(plan.created_at)).not.toBeNaN()
+
+    const ajv = new Ajv2020({ allErrors: true, strict: false })
+    expect(ajv.compile(publishedSchema)(plan), JSON.stringify(ajv.errors)).toBe(true)
+  })
+
+  it('discards a time zone the platform cannot resolve', () => {
+    const withZone = (zone: unknown) =>
+      asPlan(
+        parseObservingPlanV1(
+          JSON.stringify({
+            version: 1,
+            site: { name: 'Madrid', latitude: 40.4168, longitude: -3.7038, time_zone: zone },
+            night_of: '2026-09-12',
+            items: [],
+          }),
+        ),
+      ).site.time_zone
+
+    expect(withZone('Mars/Olympus')).toBeNull()
+    expect(withZone('')).toBeNull()
+    expect(withZone(42)).toBeNull()
+    expect(withZone('Europe/Madrid')).toBe('Europe/Madrid')
+    expect(withZone('UTC')).toBe('UTC')
+  })
+
   it('never throws, whatever it is handed', () => {
     for (const text of ['', '   ', 'null', 'undefined', '{"items":[]}', ' ']) {
       expect(() => parseObservingPlanV1(text)).not.toThrow()
@@ -340,6 +397,24 @@ describe('toCsv', () => {
     ).split('\n')
     expect(rows[1]).toContain('"Andromeda, M31"')
     expect(rows[1]).toContain('"say ""hi"" then look"')
+  })
+
+  it('neutralises a note a spreadsheet would run as a formula', () => {
+    // Notes arrive from imported documents written by strangers and leave through
+    // export_plan: a cell starting with = + - or @ must not execute in Excel.
+    const rows = toCsv(
+      build({
+        plan: [
+          { ...PLAN[0], note: '=1+1' },
+          { ...PLAN[1], note: '@SUM(A1:A9)', targetName: '-Andromeda' },
+        ],
+      }),
+    ).split('\n')
+    expect(rows[1]).toContain('"\'=1+1"')
+    expect(rows[2]).toContain('"\'@SUM(A1:A9)"')
+    expect(rows[2]).toContain('"\'-Andromeda"')
+    // Ordinary text is still written unquoted.
+    expect(toCsv(build()).split('\n')[1]).toContain('M31,Andromeda,')
   })
 
   it('exports an empty plan as a header only file', () => {

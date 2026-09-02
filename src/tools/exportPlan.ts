@@ -111,7 +111,9 @@ function run(input: Record<string, unknown>): ToolResult<ExportPlanData> {
 
   const plan = toObservingPlanV1(state, darkness, author)
   const content = render(format, plan)
-  const filename = `roque-nights-${state.nightOf}.${format}`
+  // The same name the Plan panel's download buttons use (src/ui/ExportActions.tsx),
+  // so a file saved by the agent and one saved by the person do not collide.
+  const filename = `roque-nights-plan-${state.nightOf}.${format}`
   const shareUrl = includeShareUrl ? buildShareUrl(plan) : null
 
   if (state.site.timeZone === null) {

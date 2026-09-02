@@ -156,6 +156,42 @@ function describe(error: unknown): string {
   return String(error)
 }
 
+/**
+ * The arguments an engine actually delivered, as an object, or the error to
+ * return instead.
+ *
+ * Spec PR #246 (Aug 2026) turned `executeTool`'s second argument from a JSON
+ * string into an object, and engines in the wild still do one or the other, so
+ * a tool that quietly replaced a string with `{}` would answer a question the
+ * agent never asked. A JSON object string is parsed; anything else that is not
+ * an object is refused out loud.
+ */
+function coerceInput(input: unknown, toolName: string): Record<string, unknown> | ToolError {
+  if (input === undefined || input === null) return {}
+  let value: unknown = input
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (text === '') return {}
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return fail(
+        'invalid_input',
+        `${toolName} was called with a string of arguments that is not valid JSON.`,
+        'Pass the arguments as a JSON object, for example { "date": "2026-09-12" }.',
+      )
+    }
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail(
+      'invalid_input',
+      `${toolName} expects a JSON object of arguments, got ${Array.isArray(value) ? 'an array' : typeof value}.`,
+      'Pass the arguments as a JSON object, for example { "date": "2026-09-12" }.',
+    )
+  }
+  return value as Record<string, unknown>
+}
+
 export interface ToolSpec<T> {
   name: string
   title: string
@@ -174,6 +210,9 @@ export interface ToolSpec<T> {
  * The returned `execute` ALWAYS resolves. A thrown cancellation becomes
  * `aborted`; anything else becomes `internal_error` with the message attached,
  * because an agent can act on a structured error and cannot act on a rejection.
+ * Arguments delivered as a JSON string are parsed, and arguments that are
+ * neither an object nor a JSON object string come back as `invalid_input`
+ * rather than being silently dropped.
  */
 export function defineTool<T>(def: ToolSpec<T>): ModelContextToolDefinition {
   return {
@@ -184,7 +223,8 @@ export function defineTool<T>(def: ToolSpec<T>): ModelContextToolDefinition {
     annotations: def.annotations,
     execute: async (input, options) => {
       try {
-        const safeInput = typeof input === 'object' && input !== null ? input : {}
+        const safeInput = coerceInput(input, def.name)
+        if (isToolError(safeInput)) return safeInput
         return await def.run(safeInput, { signal: options?.signal })
       } catch (error) {
         if (isAbortError(error)) {

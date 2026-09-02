@@ -117,7 +117,15 @@ export function parseToolInput(text: string): ParsedInput {
   return { input: value as Record<string, unknown> }
 }
 
-export type ToolCallVia = 'webmcp' | 'webmcp-json-string' | 'direct'
+export type ToolCallVia =
+  | 'webmcp'
+  | 'webmcp-json-string'
+  /** No `document.modelContext` at all: this browser cannot host an agent. */
+  | 'direct'
+  /** WebMCP is here, but the tool is not in `getTools()` at this moment. */
+  | 'direct-unregistered'
+  /** WebMCP is here and the tool is registered, and the engine still refused. */
+  | 'direct-refused'
 
 export interface ToolCallOutcome {
   via: ToolCallVia
@@ -125,15 +133,32 @@ export interface ToolCallOutcome {
   error?: string
 }
 
-const VIA_LABEL: Record<ToolCallVia, string> = {
+export const VIA_LABEL: Record<ToolCallVia, string> = {
   webmcp: 'via document.modelContext.executeTool',
   'webmcp-json-string': 'via document.modelContext.executeTool (JSON string variant)',
   direct: 'called directly: this browser has no WebMCP',
+  'direct-unregistered':
+    'called directly: WebMCP is live here but this tool is not registered right now',
+  'direct-refused': 'called directly: WebMCP is live and the tool is registered, but the engine refused the call',
 }
 
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/**
+ * Is this rejection a complaint about the SHAPE of the arguments?
+ *
+ * Spec PR #246 (August 2026) turned `executeTool`'s second argument from a JSON
+ * string into an object, so one retry with the other dialect is worth it. Any
+ * other rejection may well have arrived after the tool body already ran, and
+ * retrying it would run a mutating tool twice.
+ */
+export function isArgumentShapeError(error: unknown): boolean {
+  if (error instanceof TypeError) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return /string|argument|parameter|type|serializ|parse|json/i.test(message)
 }
 
 /** Engines return either the value or its JSON text; both must read the same. */
@@ -149,36 +174,55 @@ function coerce(raw: unknown): unknown {
 /**
  * Run a tool the way an agent would.
  *
- * Spec PR #246 (August 2026) changed `executeTool`'s second argument from a
- * JSON string to a plain object and engines in the wild implement one or the
- * other, so both are tried before falling back to the tool itself. Never
- * rejects: a thrown tool comes back as `error`.
+ * The engine hands out its OWN tool handles, so the handle is looked up through
+ * `getTools()`; a literal `{ name }` is not one, and passing it makes a real
+ * WebMCP browser look like a browser without WebMCP. Only when the engine has
+ * no handle for this tool, or refuses the call, does the harness fall back to
+ * the tool object itself, and it says which of those happened.
+ *
+ * Never rejects: a thrown tool comes back as `error`.
  */
 export async function runToolCall(
   tool: ModelContextToolDefinition,
   input: Record<string, unknown>,
   mc: ModelContext | undefined = getModelContext(),
 ): Promise<ToolCallOutcome> {
-  const ref: RegisteredModelContextTool = { name: tool.name, description: tool.description }
+  const usable = Boolean(mc && typeof mc.executeTool === 'function')
+  let ref: RegisteredModelContextTool | null = null
+  if (usable && typeof mc?.getTools === 'function') {
+    try {
+      const registered = await mc.getTools()
+      ref = registered.find((entry) => entry.name === tool.name) ?? null
+    } catch {
+      ref = null
+    }
+  }
 
-  if (mc && typeof mc.executeTool === 'function') {
+  if (mc && ref) {
     try {
       return { via: 'webmcp', value: coerce(await mc.executeTool(ref, input)) }
-    } catch {
-      // Older engines only accept the JSON string form.
+    } catch (first) {
+      // Only a complaint about the argument SHAPE earns a second attempt: any
+      // other rejection may have arrived AFTER the tool body already ran, and
+      // `clear_plan` must not run twice because a turn timed out.
+      if (!isArgumentShapeError(first)) {
+        return { via: 'direct-refused', error: describeError(first) }
+      }
     }
     try {
       const asText = JSON.stringify(input) as unknown as Record<string, unknown>
       return { via: 'webmcp-json-string', value: coerce(await mc.executeTool(ref, asText)) }
     } catch {
-      // The tool may simply not be registered right now (contextual tools).
+      // Both dialects rejected the arguments before the tool body: safe to run
+      // the very same tool object here so the panel still shows a result.
     }
   }
 
+  const via: ToolCallVia = ref ? 'direct-refused' : usable ? 'direct-unregistered' : 'direct'
   try {
-    return { via: 'direct', value: coerce(await tool.execute(input)) }
+    return { via, value: coerce(await tool.execute(input)) }
   } catch (error) {
-    return { via: 'direct', error: describeError(error) }
+    return { via, error: describeError(error) }
   }
 }
 
@@ -230,10 +274,18 @@ export function AgentHarness() {
   const [outcome, setOutcome] = useState<ToolCallOutcome | null>(null)
   const [copiedPrompt, setCopiedPrompt] = useState<number | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => () => {
     if (copyTimer.current !== null) clearTimeout(copyTimer.current)
   }, [])
+
+  // The harness sits at the bottom of a scrolling column: opening it grows the
+  // column by ~600 px below the fold, so nothing appears to happen. Bring it up.
+  useEffect(() => {
+    if (!open) return
+    sectionRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [open])
 
   const registered = useMemo(
     () => new Set(currentToolNames({ plan, proposals })),
@@ -279,7 +331,7 @@ export function AgentHarness() {
   const failed = Boolean(outcome?.error) || isFailure(outcome?.value)
 
   return (
-    <section className="rounded-sm border border-panel-edge bg-panel p-3 font-mono">
+    <section ref={sectionRef} className="rounded-sm border border-panel-edge bg-panel p-3 font-mono">
       <button
         type="button"
         className="flex w-full items-baseline justify-between gap-2 text-left"

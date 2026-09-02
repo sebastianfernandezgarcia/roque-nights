@@ -9,7 +9,7 @@
  *
  * Rendering is demand driven: a frame is painted when an input changes, and the
  * only requestAnimationFrame loops that ever run are the view animation and the
- * 900 ms reticle pulse.
+ * reticle pulse that follows it.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -19,11 +19,12 @@ import type { SkyView, ViewFrame } from '../astro/sky'
 import { compassDirection } from '../astro/targets'
 import { formatInZone } from '../astro/time'
 import { store, useRoqueStore } from '../state/store'
-import { useAnimatedView } from './animate'
-import { dragToView, hitTest, wheelToFov } from './interaction'
+import { DEFAULT_ANIMATION_MS, reticlePhase, useAnimatedView } from './animate'
+import { dragToView, hitTest, trailingBurst, wheelToFov } from './interaction'
 import type { Hit } from './interaction'
 import { renderSky } from './render'
 import { buildScene } from './scene'
+import type { Scene } from './scene'
 
 /** Retina is worth it; anything past 2x costs fill rate and buys nothing. */
 const MAX_DPR = 2
@@ -31,7 +32,6 @@ const MAX_DPR = 2
 const DRAG_THRESHOLD_PX = 4
 const LONG_PRESS_MS = 500
 const FAVORITE_PULSE_MS = 400
-const RETICLE_MS = 900
 /** One activity entry per burst of wheel notches, not one per notch. */
 const ZOOM_LOG_MS = 400
 const MAX_STAR_MAG = 6
@@ -60,6 +60,23 @@ function round(value: number): number {
 
 function describeView(view: SkyView): string {
   return `alt ${round(view.centerAltDeg)}° az ${round(view.centerAzDeg)}° fov ${round(view.fovDeg)}°`
+}
+
+/** The tooltip for a point on the dome, or null when nothing is under it. */
+function hoverAt(scene: Scene | null, x: number, y: number): HoverState | null {
+  if (!scene) return null
+  const hit = hitTest(scene, x, y)
+  if (!hit) return null
+  const object = scene.objects.find((o) => o.id === hit.id)
+  const suffix = object
+    ? ` · alt ${round(object.altDeg)}° · az ${round(object.azDeg)}° (${compassDirection(object.azDeg)})`
+    : ''
+  return { x, y, label: `${hit.name}${suffix}` }
+}
+
+function sameHover(a: HoverState | null, b: HoverState | null): boolean {
+  if (a === null || b === null) return a === b
+  return a.x === b.x && a.y === b.y && a.label === b.label
 }
 
 export function SkyMap() {
@@ -177,33 +194,56 @@ export function SkyMap() {
   ])
 
   // --- the agent's ripple --------------------------------------------------
-  const wasAnimating = useRef(view.animate)
+  // The mark lands where the dome LANDS: `drawReticle` always paints the centre
+  // of the canvas, so a pulse that ran during the swing crossed empty sky and
+  // was gone by the time the target arrived. It waits out the animation now.
+  // Keyed on the view object, not on the boolean: two point_sky_map calls in a
+  // row both leave `animate` true, and a transition guard would mark only the
+  // first of them.
   useEffect(() => {
-    const started = view.animate && !wasAnimating.current
-    wasAnimating.current = view.animate
-    if (!started) return
+    if (!view.animate) return
     // Only the agent gets a reticle: when the human presses "whole sky" they
     // already know where they are looking.
     if (store.getState().activity[0]?.source === 'human') return
+    // A pulse still running belongs to the previous swing.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setReticlePulse(1)
     let raf = 0
     const startedAt = performance.now()
     const tick = () => {
-      const t = (performance.now() - startedAt) / RETICLE_MS
-      if (t >= 1) {
-        setReticlePulse(1)
-        return
-      }
-      setReticlePulse(t)
+      const phase = reticlePhase(performance.now() - startedAt)
+      setReticlePulse(phase)
+      if (phase >= 1) return
       raf = requestAnimationFrame(tick)
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [view.animate])
+    const timer = setTimeout(tick, DEFAULT_ANIMATION_MS)
+    return () => {
+      clearTimeout(timer)
+      cancelAnimationFrame(raf)
+    }
+  }, [view])
 
   // --- the human's hands ---------------------------------------------------
   const dragRef = useRef<DragState | null>(null)
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastZoomLogRef = useRef(0)
+  /** Last pointer position over the canvas, so a new scene can re-read it. */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null)
+
+  // A tooltip is a statement about the frame it was computed from. When the
+  // agent swings the map or the clock moves, that frame is gone, so the label
+  // is recomputed for the pointer where it actually is (and drops when the new
+  // scene has nothing there) instead of hanging over a different sky.
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect
+    setHover((current) => {
+      // Nothing on screen, nothing to correct: no hit test on frames that do
+      // not need one, so a swing or a play at x3600 costs the same as before.
+      if (current === null) return null
+      const point = pointerRef.current
+      const next = point ? hoverAt(scene, point.x, point.y) : null
+      return sameHover(current, next) ? current : next
+    })
+  }, [scene])
 
   const cancelLongPress = () => {
     if (longPressRef.current !== null) {
@@ -266,20 +306,12 @@ export function SkyMap() {
 
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = pointAt(event)
+    pointerRef.current = point
     const drag = dragRef.current
 
     if (!drag) {
-      const hit = hitAt(point.x, point.y)
-      if (!hit) {
-        if (hover) setHover(null)
-        return
-      }
-      const current = sceneRef.current
-      const object = current?.objects.find((o) => o.id === hit.id)
-      const suffix = object
-        ? ` · alt ${round(object.altDeg)}° · az ${round(object.azDeg)}° (${compassDirection(object.azDeg)})`
-        : ''
-      setHover({ x: point.x, y: point.y, label: `${hit.name}${suffix}` })
+      const next = hoverAt(sceneRef.current, point.x, point.y)
+      setHover((current) => (sameHover(current, next) ? current : next))
       return
     }
 
@@ -324,23 +356,31 @@ export function SkyMap() {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    // Trailing, not leading: the agent must read the zoom the human stopped at,
+    // not the first notch of the burst.
+    const burst = trailingBurst(ZOOM_LOG_MS, () => {
+      const state = store.getState()
+      const detail = `fov ${round(state.view.fovDeg)}°`
+      state.recordHumanAction('zoom_map', detail)
+      state.logActivity('human', 'zoom_map', detail)
+    })
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
       const state = store.getState()
       const fovDeg = wheelToFov(state.view.fovDeg, event.deltaY)
       if (fovDeg === state.view.fovDeg) return
       state.setView({ fovDeg }, 'human', { silent: true })
-      const now = Date.now()
-      if (now - lastZoomLogRef.current > ZOOM_LOG_MS) {
-        lastZoomLogRef.current = now
-        state.recordHumanAction('zoom_map', `fov ${round(fovDeg)}°`)
-        state.logActivity('human', 'zoom_map', `fov ${round(fovDeg)}°`)
-      }
+      burst.bump()
     }
     canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
+    return () => {
+      burst.cancel()
+      canvas.removeEventListener('wheel', onWheel)
+    }
   }, [])
 
+  // The long press fires 500 ms after pointerdown; if the tree goes away first
+  // the callback would still reach into the store.
   useEffect(() => cancelLongPress, [])
 
   // --- overlays ------------------------------------------------------------
@@ -375,7 +415,10 @@ export function SkyMap() {
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={() => {
+          pointerRef.current = null
+          setHover(null)
+        }}
         onDoubleClick={onDoubleClick}
         aria-label="Interactive sky dome"
         role="img"

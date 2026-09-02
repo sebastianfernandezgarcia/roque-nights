@@ -53,8 +53,11 @@ beforeEach(() => {
 describe('set_observing_time declaration', () => {
   it('is idempotent and named as the plan says', () => {
     expect(setObservingTimeTool.name).toBe('set_observing_time')
+    // destructiveHint is spelled out: it defaults to true whenever
+    // readOnlyHint is false, and this tool only moves the slider.
     expect(setObservingTimeTool.annotations).toEqual({
       readOnlyHint: false,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     })
@@ -63,14 +66,26 @@ describe('set_observing_time declaration', () => {
     )
   })
 
-  it('has an input schema Ajv compiles that needs time or date and refuses extras', () => {
+  it('has an input schema Ajv compiles in strict mode and that refuses extras', () => {
+    const strict = new Ajv({ allErrors: true, strict: true })
+    expect(() => strict.compile(setObservingTimeTool.inputSchema as object)).not.toThrow()
+
     const validate = ajv.compile(setObservingTimeTool.inputSchema as object)
     expect(validate({ time: 'midnight' })).toBe(true)
     expect(validate({ date: '2026-09-12' })).toBe(true)
     expect(validate({ time: '2026-09-12T22:30:00Z', date: '2026-09-12' })).toBe(true)
-    expect(validate({})).toBe(false)
+    // "one of time and date is required" is a runtime rule, not a schema one:
+    // a top-level anyOf of required lists is what strict validators reject.
+    expect(validate({})).toBe(true)
     expect(validate({ time: 'now', extra: 1 })).toBe(false)
     expect(validate({ date: '12/09/2026' })).toBe(false)
+  })
+
+  it('says in its description that time or date is required, and defines the keywords', () => {
+    const text = setObservingTimeTool.description
+    expect(text).toContain('At least one of time and date is required')
+    expect(text).toContain('ASTRONOMICAL darkness')
+    expect(text).toContain('NOT 00:00 clock time')
   })
 })
 
@@ -136,6 +151,57 @@ describe('set_observing_time', () => {
     expect(store.getState().nightOf).toBe('2026-09-12')
     expect(store.getState().timeUtc).toBe('2026-09-12T23:15:00.000Z')
     expect(result.caveats).toEqual([])
+  })
+
+  it('moves the app to the night that contains an instant from another night', async () => {
+    const result = expectOk(await run({ time: '2026-09-12T23:15:00Z' }))
+
+    expect(store.getState().timeUtc).toBe('2026-09-12T23:15:00.000Z')
+    // The slider and the night must agree: everything else on the page is
+    // computed for nightOf.
+    expect(store.getState().nightOf).toBe('2026-09-12')
+    expect(result.data.night_of).toBe('2026-09-12')
+    expect(result.caveats.join(' ')).toContain('2026-09-12')
+    expect(result.caveats.join(' ')).toContain('is not inside the night of 2026-09-02')
+  })
+
+  it('reads a small-hours instant as belonging to the evening before', async () => {
+    const result = expectOk(await run({ time: '2026-09-13T02:00:00Z' }))
+    expect(result.data.night_of).toBe('2026-09-12')
+    expect(store.getState().nightOf).toBe('2026-09-12')
+  })
+
+  it('refuses an instant outside 1900-2100 and leaves the app alone', async () => {
+    for (const time of [
+      '+275760-09-13T00:00:00.000Z',
+      '1000-01-01T00:00:00Z',
+      '9999-12-31T23:59:59Z',
+    ]) {
+      const error = expectFail(await run({ time }))
+      expect(error.error.code).toBe('invalid_input')
+      expect(error.error.message).toContain('1900-01-01 to 2100-12-31')
+    }
+    expect(store.getState().timeUtc).toBe(AT)
+    expect(store.getState().nightOf).toBe(NIGHT_OF)
+  })
+
+  it('prints the UTC clock from the instant, not from the string', async () => {
+    // A string offset slice used to print "13T00" for an extreme year and
+    // silently mis-slice any instant whose date part is not 10 characters.
+    const result = expectOk(await run({ time: '2026-09-02T21:05:00Z' }))
+    expect(result.summary).toContain('21:05 UTC')
+    expect(result.summary).not.toMatch(/\d{2}T\d{2}/)
+  })
+
+  it('parks "now" in the middle of a night the real clock is not in', async () => {
+    const result = expectOk(await run({ date: '2026-09-12', time: 'now' }))
+    const night = getNight('2026-09-12', ROQUE_DE_LOS_MUCHACHOS)
+    const at = Date.parse(result.data.time.utc as string)
+
+    expect(store.getState().nightOf).toBe('2026-09-12')
+    expect(at).toBeGreaterThanOrEqual(Date.parse(night.windowStartUtc))
+    expect(at).toBeLessThanOrEqual(Date.parse(night.windowEndUtc))
+    expect(result.caveats.join(' ')).toContain('real clock')
   })
 
   it('refuses an impossible calendar date without touching the app', async () => {

@@ -46,7 +46,11 @@ describe('the declaration an agent reads', () => {
     expect(validate({ date: '2026-09-12' })).toBe(true)
     expect(validate({ site: { latitude: 19.8207, longitude: -155.4681, time_zone: 'Pacific/Honolulu' } })).toBe(true)
     expect(validate({ date: '12/09/2026' })).toBe(false)
-    expect(validate({ site: { latitude: 19.8207 } })).toBe(false)
+    // A catalog id is a first-class way to name a site.
+    expect(validate({ site: { id: 'mauna-kea' } })).toBe(true)
+    // Half a coordinate pair passes the schema and is refused at runtime
+    // (invalid_site): see "rejects half a coordinate pair" below.
+    expect(validate({ site: { latitude: 19.8207 } })).toBe(true)
     expect(validate({ moon: true })).toBe(false)
   })
 })
@@ -140,6 +144,22 @@ describe('refusals', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.code).toBe('invalid_site')
+  })
+
+  it('answers for a catalog site named by id, with its own zone and elevation', async () => {
+    const result = expectOk(await call({ date: '2026-09-02', site: { id: 'mauna-kea' } }))
+    expect(result.site.id).toBe('mauna-kea')
+    expect(result.site.time_zone).toBe('Pacific/Honolulu')
+    expect(result.site.elevation_m).toBeGreaterThan(4000)
+    expect(result.data.darkness.start.local).not.toBeNull()
+  })
+
+  it('refuses a site object that names nothing the catalog knows', async () => {
+    const result = await call({ site: { id: 'nowhere-at-all' } })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.code).toBe('invalid_site')
+    expect(result.error.message).toMatch(/nowhere-at-all/)
   })
 
   it('rejects a time zone no browser knows', async () => {

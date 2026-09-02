@@ -57,15 +57,31 @@ beforeEach(() => {
 })
 
 describe('modify_plan declaration', () => {
-  it('is idempotent and named as the plan says', () => {
+  it('is named as the plan says and does not claim to be idempotent', () => {
     expect(modifyPlanTool.name).toBe('modify_plan')
+    // "add" mints a new item id per call, so a repeated batch duplicates blocks.
     expect(modifyPlanTool.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: true,
+      idempotentHint: false,
       openWorldHint: false,
     })
     expect(modifyPlanTool.description.startsWith('Use this to edit the committed plan')).toBe(true)
+  })
+
+  it('spells out the fields each op needs, and gives op a type', () => {
+    const schema = modifyPlanTool.inputSchema as {
+      properties: { operations: { items: { properties: { op: Record<string, unknown> } } } }
+    }
+    const op = schema.properties.operations.items.properties.op
+    // A bare enum with no type is the one property strict validators trip on.
+    expect(op.type).toBe('string')
+    const text = op.description as string
+    expect(text).toContain('"add" needs target')
+    expect(text).toContain('"remove" needs item_id OR target')
+    expect(text).toContain('"move" needs item_id OR target PLUS start_utc')
+    expect(text).toContain('"note" needs item_id OR target PLUS note')
+    expect(text).toContain('"reorder" needs item_ids')
   })
 
   it('has an input schema Ajv compiles that pins the operation batch', () => {
@@ -99,7 +115,6 @@ describe('modify_plan add', () => {
     expect(result.tools_added).toEqual([
       'get_current_plan',
       'modify_plan',
-      'clear_plan',
       'export_plan',
     ])
     expect(result.summary).toContain('M31')
@@ -124,6 +139,40 @@ describe('modify_plan add', () => {
     expect(result.data.results[0].ok).toBe(true)
     expect(store.getState().plan).toHaveLength(1)
     expect(result.caveats.join(' ')).toContain('astronomical darkness')
+  })
+
+  it('refuses a start time that belongs to another night, naming the night', async () => {
+    const result = expectOk(
+      await run([{ op: 'add', target: 'M13', start_utc: '2026-10-20T22:30:00Z' }]),
+    )
+    const entry = result.data.results[0]
+
+    expect(entry.ok).toBe(false)
+    expect(entry.reason).toContain('2026-09-02')
+    expect(entry.reason).toContain('36 h')
+    expect(store.getState().plan).toEqual([])
+  })
+
+  it('refuses the extremes of the Date range instead of leaking internal_error', async () => {
+    for (const start_utc of [
+      '9999-12-31T23:59:59Z',
+      '-271821-04-20T00:00:00Z',
+      '+275760-09-13T00:00:00.000Z',
+    ]) {
+      const result = expectOk(await run([{ op: 'add', target: 'M13', start_utc }]))
+      expect(result.data.results[0].ok).toBe(false)
+      expect(result.data.results[0].reason).toBeTruthy()
+    }
+    expect(store.getState().plan).toEqual([])
+  })
+
+  it('still accepts a start time just outside the night window', async () => {
+    // A block that runs into the morning after the 24 h window is a real edit.
+    const result = expectOk(
+      await run([{ op: 'add', target: 'M13', start_utc: '2026-09-03T13:00:00Z' }]),
+    )
+    expect(result.data.results[0].ok).toBe(true)
+    expect(store.getState().plan).toHaveLength(1)
   })
 
   it('warns when a block placed by hand sits under the altitude floor', async () => {
@@ -177,7 +226,6 @@ describe('modify_plan remove, move and note', () => {
     expect(byTarget.tools_removed).toEqual([
       'get_current_plan',
       'modify_plan',
-      'clear_plan',
       'export_plan',
     ])
   })

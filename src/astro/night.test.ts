@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { NIGHT_CACHE_LIMIT, clearNightCache, getNight, nightCacheSize } from './cache'
 import {
+  FAINT_MOON_FRACTION,
   computeNightEphemeris,
+  faintMoonWeight,
   makeObserver,
   moonAltitudeDeg,
   phaseName,
@@ -59,7 +61,7 @@ describe('computeNightEphemeris', () => {
     expect(n.sun.astronomicalDawnUtc).toBe(n.darkness.endUtc)
     expect(n.sun.nauticalDawnUtc).toMatch(/^2026-09-03T05:58:/)
     expect(n.sun.civilDawnUtc).toMatch(/^2026-09-03T06:26:/)
-    expect(n.moon.phaseName).toBe('third quarter')
+    expect(n.moon.phaseName).toBe('waning gibbous')
     expect(n.moon.phaseAngleDeg).toBeCloseTo(250.88, 1)
     expect(n.moon.altitudeAtMidDarknessDeg!).toBeCloseTo(28.92, 1)
     expect(n.moon.upDuringDarknessPct!).toBeGreaterThan(70)
@@ -77,6 +79,43 @@ describe('computeNightEphemeris', () => {
     expect(n.explanation).toContain('28.75°N')
     expect(n.explanation).toContain('2026-09-02')
     expect(n.explanation).not.toContain('—')
+  })
+
+  it('names the same Moon the same way at two sites on the same night', () => {
+    // 2026-09-12: a 4-5 % crescent. The old octant rule called it a "new moon" at the
+    // Roque (phase angle 21.5 deg) and a "waxing crescent" at Mauna Kea (26.0 deg).
+    const maunaKea: SiteCoords = {
+      latitude: 19.8207,
+      longitude: -155.4681,
+      elevationM: 4205,
+      timeZone: 'Pacific/Honolulu',
+    }
+    const roque = computeNightEphemeris('2026-09-12', ROQUE)
+    const hawaii = computeNightEphemeris('2026-09-12', maunaKea)
+    expect(roque.moon.illuminationPct).toBeLessThan(10)
+    expect(hawaii.moon.illuminationPct).toBeLessThan(10)
+    expect(roque.moon.phaseName).toBe('waxing crescent')
+    expect(hawaii.moon.phaseName).toBe('waxing crescent')
+  })
+
+  it('counts Moon-up dark time at the faint Moon weight, with no cliff at 15%', () => {
+    const faint = computeNightEphemeris('2026-09-08', ROQUE)
+    expect(faint.moon.illuminationPct).toBe(7)
+    expect(faint.moon.illuminationFraction).toBeCloseTo(0.07, 2)
+    expect(faint.moon.faintMoonWeight).toBeCloseTo(faintMoonWeight(faint.moon.illuminationFraction), 12)
+    expect(faint.moon.faintMoonWeight).toBeGreaterThan(0)
+    const moonUpHours = faint.darkness.hours! - faint.darkness.moonFreeHours!
+    expect(faint.darkness.usableHours!).toBeCloseTo(
+      faint.darkness.moonFreeHours! + faint.moon.faintMoonWeight * moonUpHours,
+      1,
+    )
+
+    // 15 % lit is the top of the ramp: those hours are worth nothing at all.
+    const edge = computeNightEphemeris('2026-09-14', ROQUE)
+    expect(edge.moon.illuminationPct).toBe(15)
+    expect(edge.moon.faintMoonWeight).toBe(0)
+    expect(edge.darkness.usableHours).toBe(edge.darkness.moonFreeHours)
+    expect(edge.darkness.moonFreeHours!).toBeLessThan(edge.darkness.hours!)
   })
 
   it('Tromso midsummer: Sun never sets, no darkness', () => {
@@ -152,16 +191,38 @@ describe('helpers', () => {
     expect(moonAltitudeDeg(new Date('2026-09-03T01:11:13.414Z'), observer)).toBeCloseTo(28.92, 1)
   })
 
-  it('names the eight lunar phases', () => {
-    expect(phaseName(0)).toBe('new moon')
-    expect(phaseName(45)).toBe('waxing crescent')
-    expect(phaseName(90)).toBe('first quarter')
-    expect(phaseName(135)).toBe('waxing gibbous')
-    expect(phaseName(180)).toBe('full moon')
-    expect(phaseName(225)).toBe('waning gibbous')
-    expect(phaseName(270)).toBe('third quarter')
-    expect(phaseName(315)).toBe('waning crescent')
-    expect(phaseName(350)).toBe('new moon')
+  it('names the eight lunar phases from illumination and direction', () => {
+    expect(phaseName(0, 0)).toBe('new moon')
+    expect(phaseName(45, 0.15)).toBe('waxing crescent')
+    expect(phaseName(90, 0.5)).toBe('first quarter')
+    expect(phaseName(135, 0.85)).toBe('waxing gibbous')
+    expect(phaseName(180, 1)).toBe('full moon')
+    expect(phaseName(225, 0.85)).toBe('waning gibbous')
+    expect(phaseName(270, 0.5)).toBe('third quarter')
+    expect(phaseName(315, 0.15)).toBe('waning crescent')
+    expect(phaseName(350, 0.01)).toBe('new moon')
+  })
+
+  it('a 4% crescent is a crescent whatever the phase angle rounds to', () => {
+    // The octant boundary at 22.5 degrees used to call this a new moon at one site
+    // and a waxing crescent at another on the very same night.
+    expect(phaseName(21.46, 0.04)).toBe('waxing crescent')
+    expect(phaseName(26.03, 0.05)).toBe('waxing crescent')
+    expect(phaseName(338, 0.04)).toBe('waning crescent')
+    // Only a genuinely dark disc is a new moon, and only a full one is full.
+    expect(phaseName(10, 0.019)).toBe('new moon')
+    expect(phaseName(179, 0.98)).toBe('full moon')
+    expect(phaseName(181, 0.979)).toBe('waning gibbous')
+  })
+
+  it('the faint Moon weight ramps from 1 at new Moon to 0 at the faint limit', () => {
+    expect(FAINT_MOON_FRACTION).toBe(0.15)
+    expect(faintMoonWeight(0)).toBe(1)
+    expect(faintMoonWeight(0.075)).toBeCloseTo(0.5, 6)
+    expect(faintMoonWeight(0.15)).toBe(0)
+    expect(faintMoonWeight(0.1501)).toBe(0)
+    expect(faintMoonWeight(1)).toBe(0)
+    expect(faintMoonWeight(Number.NaN)).toBe(0)
   })
 
   it('resolves time keywords', () => {
@@ -197,14 +258,25 @@ describe('night cache', () => {
     expect(NIGHT_CACHE_LIMIT).toBe(64)
   })
 
-  it('keys on night and coordinates, not on the time zone', () => {
+  it('keys on night, coordinates and time zone', () => {
     const a = getNight('2026-09-02', ROQUE)
     expect(getNight('2026-09-03', ROQUE)).not.toBe(a)
     expect(getNight('2026-09-02', { ...ROQUE, latitude: 28.7 })).not.toBe(a)
     expect(getNight('2026-09-02', { ...ROQUE, longitude: -17.8 })).not.toBe(a)
     expect(getNight('2026-09-02', { ...ROQUE, elevationM: 2400 })).not.toBe(a)
-    expect(getNight('2026-09-02', { ...ROQUE, timeZone: 'UTC' })).toBe(a)
     expect(getNight('2026-09-02', ROQUE).nightOf).toBe('2026-09-02')
+  })
+
+  it('a different time zone is a different night, because local noon moves', () => {
+    // Same coordinates, two zones: Honolulu noon is 11 h after Canary noon, so the
+    // 24 h window (and the darkness inside it) is not the same one.
+    const canary = getNight('2026-09-02', { ...ROQUE, timeZone: 'Atlantic/Canary' })
+    const honolulu = getNight('2026-09-02', { ...ROQUE, timeZone: 'Pacific/Honolulu' })
+    expect(honolulu).not.toBe(canary)
+    expect(honolulu.windowStartUtc).not.toBe(canary.windowStartUtc)
+    expect(honolulu.darkness.startUtc).not.toBe(canary.darkness.startUtc)
+    // And an unknown zone (solar noon from the longitude) is a third answer.
+    expect(getNight('2026-09-02', { ...ROQUE, timeZone: null })).not.toBe(canary)
   })
 
   it('holds at most 64 entries and evicts the least recently used', () => {

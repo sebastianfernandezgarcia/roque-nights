@@ -13,6 +13,7 @@ import { useRoqueStore } from '../state/store'
 import type { PlanItem, Proposal, Site } from '../state/types'
 import { fmtAirmass, fmtDeg, fmtLocal, fmtTimeRange, truncate, zoneLabel } from './format'
 import { BAND_FILL, timelineGeometry } from './timelineGeometry'
+import type { TimelineGeometry } from './timelineGeometry'
 
 const TOP = 18
 const BOTTOM = 14
@@ -20,12 +21,67 @@ const ROW_H = 22
 const MAX_ROWS = 8
 const MIN_HEIGHT = 150
 const CURVE_STEP_MINUTES = 10
+/** Block labels: big enough to read over the Moon hatch. */
+const LABEL_PX = 10
+/** Rough width of one character at LABEL_PX in IBM Plex Mono. */
+const LABEL_CHAR_PX = 6
+const LABEL_MAX_CHARS = 22
+/** The column the accept/reject buttons own, on the right of every ghost row. */
+const ACTION_COLUMN_PX = 46
 
 const CURVE_CACHE = new Map<string, number[]>()
 const CURVE_CACHE_LIMIT = 256
 
 function siteKey(site: Site): string {
   return `${site.latitude.toFixed(4)},${site.longitude.toFixed(4)},${Math.round(site.elevationM)}`
+}
+
+/**
+ * What a block says on the timeline.
+ *
+ * The catalog id leads, because that is what the dome writes next to the same
+ * object: "NGC 7092" in the plan and "M39" on the sky read as two objects.
+ */
+export function blockLabel(item: PlanItem, tz: string | null, ghost: boolean): string {
+  return truncate(
+    `${ghost ? '? ' : ''}${item.targetId} ${item.targetName} ${fmtLocal(item.startUtc, tz)}`,
+    LABEL_MAX_CHARS,
+  )
+}
+
+export interface LabelPlacement {
+  x: number
+  anchor: 'start' | 'end'
+}
+
+/**
+ * Where a block's label goes without ever landing under the accept/reject
+ * buttons, which own a fixed column on the right of the row.
+ *
+ * Inside the block when it is wide enough; otherwise to its LEFT, because the
+ * right is where the buttons are. Only a block hard against the left edge puts
+ * its label on the right, and then only in the space before the buttons.
+ */
+export function blockLabelPlacement(
+  x0: number,
+  x1: number,
+  width: number,
+  textLength: number,
+  reserveRightPx: number,
+): LabelPlacement {
+  const textPx = textLength * LABEL_CHAR_PX
+  const rightEdge = width - reserveRightPx
+  const asEnd = (x: number): LabelPlacement => ({
+    x: Math.max(textPx, Math.min(x, rightEdge)),
+    anchor: 'end',
+  })
+  const asStart = (x: number): LabelPlacement => ({
+    x: Math.max(2, Math.min(x, rightEdge - textPx)),
+    anchor: 'start',
+  })
+  if (x1 - x0 > textPx + 8) return asStart(x0 + 4)
+  if (x0 - 4 - textPx >= 0) return asEnd(x0 - 4)
+  return asStart(x1 + 4)
 }
 
 /**
@@ -39,7 +95,10 @@ export function altitudeCurve(
   startMs: number,
   endMs: number,
 ): number[] {
-  const key = `${targetId}|${nightOf}|${siteKey(site)}`
+  // The window is part of the key: the same target on the same night sampled
+  // over a different span is a different array, and handing back the other one
+  // would slide every curve sideways.
+  const key = `${targetId}|${nightOf}|${siteKey(site)}|${startMs}|${endMs}`
   const cached = CURVE_CACHE.get(key)
   if (cached) return cached
   const target = getTarget(targetId)
@@ -83,10 +142,27 @@ function warningFor(
   return null
 }
 
+/**
+ * The only thing on the timeline that moves with the clock, so the only thing
+ * that subscribes to it. Keeping it out of the parent means a slider drag stops
+ * rebuilding eight altitude polylines and thirteen Intl-formatted hour labels
+ * sixty times a second.
+ */
+function TimeCursor({ geo, height }: { geo: TimelineGeometry; height: number }) {
+  const timeUtc = useRoqueStore((s) => s.timeUtc)
+  const ms = Date.parse(timeUtc)
+  const x = geo.x(Number.isFinite(ms) ? ms : geo.startMs)
+  return (
+    <g>
+      <line x1={x} y1={0} x2={x} y2={height} stroke="#ffb454" strokeWidth={1} />
+      <polygon points={`${x - 4},0 ${x + 4},0 ${x},6`} fill="#ffb454" />
+    </g>
+  )
+}
+
 export function PlanTimeline() {
   const site = useRoqueStore((s) => s.site)
   const nightOf = useRoqueStore((s) => s.nightOf)
-  const timeUtc = useRoqueStore((s) => s.timeUtc)
   const plan = useRoqueStore((s) => s.plan)
   const proposals = useRoqueStore((s) => s.proposals)
   const filters = useRoqueStore((s) => s.filters)
@@ -124,10 +200,17 @@ export function PlanTimeline() {
     [proposals],
   )
 
+  // The plan timeline only spans the observable part of the night: noon to noon
+  // spent two thirds of a 380 px column on daylight.
+  const geo = useMemo(
+    () => (night ? timelineGeometry(night, width, 'observable') : null),
+    [night, width],
+  )
+
   const rows: Row[] = useMemo(() => {
-    if (!night) return []
-    const startMs = Date.parse(night.windowStartUtc)
-    const endMs = Date.parse(night.windowEndUtc)
+    if (!night || !geo) return []
+    const startMs = geo.startMs
+    const endMs = geo.endMs
     const make = (
       item: PlanItem,
       ghost: boolean,
@@ -169,12 +252,73 @@ export function PlanTimeline() {
       ),
     )
     return [...planRows, ...ghostRows]
-  }, [night, plan, pending, nightOf, site, filters.minAltDeg])
+  }, [night, geo, plan, pending, nightOf, site, filters.minAltDeg])
 
+  const tz = site.timeZone
   const visibleRows = rows.slice(0, MAX_ROWS)
   const hiddenCount = rows.length - visibleRows.length
   const height = Math.max(MIN_HEIGHT, TOP + Math.max(visibleRows.length, 1) * ROW_H + BOTTOM)
-  const geo = useMemo(() => (night ? timelineGeometry(night, width) : null), [night, width])
+  const rowsTop = TOP
+  const rowHeight = (height - BOTTOM - rowsTop) / Math.max(visibleRows.length, 1)
+
+  // None of this depends on the clock, so none of it is rebuilt when the clock
+  // moves: 145 samples per row across 8 rows is 2320 formatted numbers, and the
+  // hour labels are the page's whole Intl budget.
+  const hourTicks = useMemo(() => {
+    if (!geo) return []
+    const spanHours = (geo.endMs - geo.startMs) / 3_600_000
+    const MIN_LABEL_PX = 40
+    const stepHours =
+      [1, 2, 3, 4, 6, 8, 12].find((hours) => (width * hours) / spanHours >= MIN_LABEL_PX) ?? 12
+    const ticks: { x: number; label: string; showLabel: boolean }[] = []
+    for (let ms = geo.startMs; ms <= geo.endMs; ms += stepHours * 3_600_000) {
+      const x = geo.x(ms)
+      // The last tick is right aligned against the edge, which can walk it back
+      // into its neighbour: keep the grid line, drop the label.
+      const previous = ticks[ticks.length - 1]
+      const rightAligned = x > width - 26
+      const showLabel =
+        !rightAligned || previous === undefined || x - previous.x >= MIN_LABEL_PX * 1.6
+      ticks.push({ x, label: fmtLocal(new Date(ms).toISOString(), tz), showLabel })
+    }
+    return ticks
+  }, [geo, width, tz])
+
+  const drawnRows = useMemo(() => {
+    if (!geo) return []
+    const altToY = (altDeg: number, rowTop: number, rowH: number): number => {
+      const clamped = Math.min(Math.max(altDeg, 0), 90)
+      return rowTop + rowH - (clamped / 90) * (rowH - 2) - 1
+    }
+    return visibleRows.map((row, index) => {
+      const rowTop = rowsTop + index * rowHeight
+      const curve = altitudeCurve(row.item.targetId, nightOf, site, geo.startMs, geo.endMs)
+      const points = curve
+        .map((alt, i) => {
+          const ms = geo.startMs + i * CURVE_STEP_MINUTES * 60_000
+          return `${geo.x(ms).toFixed(1)},${altToY(alt, rowTop, rowHeight).toFixed(1)}`
+        })
+        .join(' ')
+      const x0 = geo.x(row.item.startUtc)
+      const x1 = geo.x(row.item.endUtc)
+      const label = blockLabel(row.item, tz, row.ghost)
+      return {
+        row,
+        rowTop,
+        points,
+        x0,
+        x1,
+        label,
+        placement: blockLabelPlacement(
+          x0,
+          x1,
+          width,
+          label.length,
+          row.ghost ? ACTION_COLUMN_PX : 4,
+        ),
+      }
+    })
+  }, [geo, visibleRows, rowsTop, rowHeight, nightOf, site, tz, width])
 
   if (!night || !geo) {
     return (
@@ -183,38 +327,6 @@ export function PlanTimeline() {
       </p>
     )
   }
-
-  const tz = site.timeZone
-  const startMs = geo.startMs
-  const endMs = geo.endMs
-  const rowsTop = TOP
-  const rowsBottom = height - BOTTOM
-  const rowHeight = (rowsBottom - rowsTop) / Math.max(visibleRows.length, 1)
-
-  const altToY = (altDeg: number, rowTop: number, rowH: number): number => {
-    const clamped = Math.min(Math.max(altDeg, 0), 90)
-    return rowTop + rowH - (clamped / 90) * (rowH - 2) - 1
-  }
-
-  // The timeline lives in a 380 px column: pick the coarsest hour step that
-  // still fills the axis, so 'HH:mm' labels never run into each other.
-  const spanHours = (endMs - startMs) / 3_600_000
-  const MIN_LABEL_PX = 40
-  const tickStepHours =
-    [1, 2, 3, 4, 6, 8, 12].find((hours) => (width * hours) / spanHours >= MIN_LABEL_PX) ?? 12
-  const hourTicks: { x: number; label: string; showLabel: boolean }[] = []
-  for (let ms = startMs; ms <= endMs; ms += tickStepHours * 3_600_000) {
-    const x = geo.x(ms)
-    // The last tick is right aligned against the edge, which can walk it back
-    // into its neighbour: keep the grid line, drop the label.
-    const previous = hourTicks[hourTicks.length - 1]
-    const rightAligned = x > width - 26
-    const showLabel = !rightAligned || previous === undefined || x - previous.x >= MIN_LABEL_PX * 1.6
-    hourTicks.push({ x, label: fmtLocal(new Date(ms).toISOString(), tz), showLabel })
-  }
-
-  const cursorMs = Number.isFinite(Date.parse(timeUtc)) ? Date.parse(timeUtc) : startMs
-  const cursorX = geo.x(cursorMs)
 
   const scrub = (clientX: number, silent: boolean) => {
     const node = containerRef.current
@@ -310,20 +422,9 @@ export function PlanTimeline() {
             )
           })}
 
-          {visibleRows.map((row, index) => {
-            const rowTop = rowsTop + index * rowHeight
-            const curve = altitudeCurve(row.item.targetId, nightOf, site, startMs, endMs)
-            const points = curve
-              .map((alt, i) => {
-                const ms = startMs + i * CURVE_STEP_MINUTES * 60_000
-                return `${geo.x(ms).toFixed(1)},${altToY(alt, rowTop, rowHeight).toFixed(1)}`
-              })
-              .join(' ')
-            const x0 = geo.x(row.item.startUtc)
-            const x1 = geo.x(row.item.endUtc)
+          {drawnRows.map(({ row, rowTop, points, x0, x1, label, placement }) => {
             const blockWidth = Math.max(x1 - x0, 3)
             const stroke = row.warning ? '#ff5c4d' : '#ffb454'
-            const label = `${row.item.targetName} ${fmtLocal(row.item.startUtc, tz)}`
             return (
               <g key={row.key}>
                 <line
@@ -350,34 +451,30 @@ export function PlanTimeline() {
                   onMouseLeave={() => setHovered((current) => (current === row.key ? null : current))}
                 />
                 <text
-                  x={blockWidth > 90 ? x0 + 4 : Math.min(x1 + 4, width - 4)}
+                  x={placement.x}
                   y={rowTop + rowHeight / 2 + 3}
-                  fontSize={9}
-                  fill={blockWidth > 90 ? '#ffe6bf' : '#8a93a6'}
-                  textAnchor={blockWidth > 90 ? 'start' : x1 > width - 90 ? 'end' : 'start'}
+                  fontSize={LABEL_PX}
+                  fill="#ffe6bf"
+                  textAnchor={placement.anchor}
                 >
-                  {row.ghost ? `? ${label}` : label}
+                  {label}
                 </text>
               </g>
             )
           })}
 
-          <line x1={cursorX} y1={0} x2={cursorX} y2={height} stroke="#ffb454" strokeWidth={1} />
-          <polygon
-            points={`${cursorX - 4},0 ${cursorX + 4},0 ${cursorX},6`}
-            fill="#ffb454"
-          />
+          <TimeCursor geo={geo} height={height} />
         </svg>
 
-        {visibleRows.map((row, index) => {
+        {drawnRows.map(({ row, rowTop }) => {
           if (!row.ghost || !row.proposalId) return null
-          const rowTop = rowsTop + index * rowHeight
-          const left = Math.min(geo.x(row.item.endUtc) + 6, Math.max(width - 96, 0))
+          // A fixed column, never next to the block: a 30 minute block is ~13 px
+          // wide and the buttons used to sit exactly where its label went.
           return (
             <div
               key={`actions-${row.key}`}
               className="absolute flex gap-1"
-              style={{ left, top: rowTop + 2 }}
+              style={{ left: Math.max(0, width - ACTION_COLUMN_PX), top: rowTop + 2 }}
             >
               <button
                 type="button"

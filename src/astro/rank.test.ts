@@ -82,14 +82,54 @@ describe('rankNights', () => {
     }
   })
 
-  it('sorts best first and breaks ties by the earlier date', () => {
+  it('sorts best first and breaks ties by Moon free hours, then Moon, then date', () => {
     const r = rankNights(isoDateRange('2026-08-31', '2026-09-14'), ROQUE)
     for (let i = 1; i < r.length; i++) {
-      expect(r[i - 1].score).toBeGreaterThanOrEqual(r[i].score)
-      if (r[i - 1].score === r[i].score) {
-        expect(r[i - 1].nightOf < r[i].nightOf).toBe(true)
+      const before = r[i - 1]
+      const after = r[i]
+      expect(before.score).toBeGreaterThanOrEqual(after.score)
+      if (before.score !== after.score) continue
+      const freeBefore = before.moonFreeHours ?? 0
+      const freeAfter = after.moonFreeHours ?? 0
+      if (Math.abs(freeBefore - freeAfter) > 1e-9) {
+        expect(freeBefore).toBeGreaterThan(freeAfter)
+        continue
       }
+      if (before.moonIlluminationPct !== after.moonIlluminationPct) {
+        expect(before.moonIlluminationPct).toBeLessThan(after.moonIlluminationPct)
+        continue
+      }
+      expect(before.nightOf < after.nightOf).toBe(true)
     }
+  })
+
+  it('a 15% Moon up during darkness ranks below the new Moon nights', () => {
+    // The old faint-Moon cliff counted a rounded 15% Moon as free, which tied
+    // 2026-09-14 with the new Moon nights either side of it.
+    const r = rankNights(isoDateRange('2026-09-05', '2026-09-20'), ROQUE)
+    const rank = (nightOf: string) => r.findIndex((night) => night.nightOf === nightOf)
+    const sep14 = r[rank('2026-09-14')]
+
+    expect(r[0].nightOf).toBe('2026-09-13')
+    expect(sep14.moonIlluminationPct).toBe(15)
+    expect(sep14.moonFreeHours!).toBeLessThan(sep14.darkHours!)
+    // A 15% Moon buys nothing: usable time is exactly the Moon free time.
+    expect(sep14.usableHours).toBeCloseTo(sep14.moonFreeHours!, 6)
+    expect(sep14.score).toBeLessThan(r[rank('2026-09-10')].score)
+    for (const nightOf of ['2026-09-10', '2026-09-11', '2026-09-12', '2026-09-13']) {
+      expect(rank(nightOf)).toBeLessThan(rank('2026-09-14'))
+    }
+  })
+
+  it('counts dark hours under a faint Moon at partial weight and says the weight', () => {
+    // 2026-09-08: a 7% Moon is up for part of the darkness, so that part counts
+    // at 1 - 0.07/0.15 of its length instead of counting fully or not at all.
+    const [night] = rankNights(['2026-09-08'], ROQUE)
+    expect(night.moonFreeHours!).toBeLessThan(night.darkHours!)
+    expect(night.usableHours!).toBeGreaterThan(night.moonFreeHours!)
+    expect(night.usableHours!).toBeLessThan(night.darkHours!)
+    expect(night.explanation).toMatch(/count at \d+% weight because it is faint/)
+    expect(night.explanation).not.toMatch(/faint enough to ignore/)
   })
 
   it('reports usable hours that never exceed the darkness window', () => {

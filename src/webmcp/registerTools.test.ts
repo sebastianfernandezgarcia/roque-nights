@@ -272,7 +272,7 @@ describe('registerWebMCPTools', () => {
     expect(store.getState().webmcp.toolCount).toBe(0)
   })
 
-  it('registers the 9 base tools and reports them in the store', async () => {
+  it('registers the 10 base tools and reports them in the store', async () => {
     const mc = new FakeModelContext()
     stubDocument(mc)
     await registerWebMCPTools()
@@ -333,7 +333,7 @@ describe('registerWebMCPTools', () => {
     expect(mc.names()).toEqual(BASE_TOOL_NAMES.filter((name) => name !== 'rank_nights'))
     expect(store.getState().webmcp.status).toBe('registered')
     expect(store.getState().webmcp.toolNames).not.toContain('rank_nights')
-    expect(store.getState().webmcp.toolCount).toBe(8)
+    expect(store.getState().webmcp.toolCount).toBe(9)
 
     // The contextual sync still runs and still tells the truth.
     store.getState().setPlan([M31], 'agent', 'test')

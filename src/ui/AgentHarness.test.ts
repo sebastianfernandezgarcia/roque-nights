@@ -7,6 +7,8 @@ import { APP_TOOLS } from '../webmcp/registerTools'
 import {
   AGENT_PLAYBOOK,
   SAMPLE_INPUTS,
+  VIA_LABEL,
+  isArgumentShapeError,
   parseToolInput,
   runToolCall,
   sampleInputText,
@@ -16,6 +18,19 @@ const ajv = new Ajv({ allErrors: true, strict: false })
 
 function fakeTool(execute: ModelContextToolDefinition['execute']): ModelContextToolDefinition {
   return { name: 'fake_tool', description: 'Use this in tests only.', execute }
+}
+
+/** The engine's own handle for a tool: never the literal the page wrote. */
+const ENGINE_REF = { name: 'fake_tool', description: 'the engine copy' }
+
+function fakeEngine(
+  executeTool: (tool: RegisteredModelContextTool, input?: unknown) => Promise<unknown>,
+  tools: RegisteredModelContextTool[] = [ENGINE_REF],
+): ModelContext {
+  return {
+    getTools: () => Promise.resolve(tools),
+    executeTool,
+  } as unknown as ModelContext
 }
 
 describe('SAMPLE_INPUTS', () => {
@@ -109,39 +124,81 @@ describe('runToolCall', () => {
 
   it('prefers the browser executeTool and parses its JSON string', async () => {
     const calls: unknown[] = []
-    const mc = {
-      executeTool: (_tool: RegisteredModelContextTool, input?: unknown) => {
-        calls.push(input)
-        return Promise.resolve(JSON.stringify({ ok: true, summary: 'through the engine' }))
-      },
-    } as unknown as ModelContext
+    const mc = fakeEngine((_tool, input) => {
+      calls.push(input)
+      return Promise.resolve(JSON.stringify({ ok: true, summary: 'through the engine' }))
+    })
     const outcome = await runToolCall(fakeTool(() => ({ ok: true })), { n: 2 }, mc)
     expect(outcome.via).toBe('webmcp')
     expect(calls[0]).toEqual({ n: 2 })
     expect((outcome.value as { summary: string }).summary).toBe('through the engine')
   })
 
+  it('passes the handle the engine handed out, not a literal of its own', async () => {
+    const handles: RegisteredModelContextTool[] = []
+    const mc = fakeEngine((tool) => {
+      handles.push(tool)
+      return Promise.resolve({ ok: true, summary: 'ok' })
+    })
+    const outcome = await runToolCall(fakeTool(() => ({ ok: true })), {}, mc)
+    expect(outcome.via).toBe('webmcp')
+    expect(handles[0]).toBe(ENGINE_REF)
+  })
+
   it('retries with the JSON string variant when the object variant is refused', async () => {
     const seen: unknown[] = []
-    const mc = {
-      executeTool: (_tool: RegisteredModelContextTool, input?: unknown) => {
-        seen.push(input)
-        if (typeof input !== 'string') return Promise.reject(new Error('object input refused'))
-        return Promise.resolve({ ok: true, summary: 'string variant' })
-      },
-    } as unknown as ModelContext
+    const mc = fakeEngine((_tool, input) => {
+      seen.push(input)
+      if (typeof input !== 'string') return Promise.reject(new TypeError('argument must be a string'))
+      return Promise.resolve({ ok: true, summary: 'string variant' })
+    })
     const outcome = await runToolCall(fakeTool(() => ({ ok: true })), { n: 3 }, mc)
     expect(outcome.via).toBe('webmcp-json-string')
     expect(seen[1]).toBe('{"n":3}')
     expect((outcome.value as { summary: string }).summary).toBe('string variant')
   })
 
-  it('falls back to the tool itself when the engine refuses both variants', async () => {
+  it('never runs a mutating tool twice when the rejection is not about the arguments', async () => {
+    let runs = 0
+    const mc = fakeEngine(() => {
+      runs += 1
+      // The body already ran; the turn timed out on the way back.
+      return Promise.reject(new Error('the model turn timed out'))
+    })
+    const outcome = await runToolCall(
+      fakeTool(() => {
+        runs += 1
+        return { ok: true }
+      }),
+      {},
+      mc,
+    )
+    expect(runs).toBe(1)
+    expect(outcome.via).toBe('direct-refused')
+    expect(outcome.error).toContain('timed out')
+  })
+
+  it('falls back to the tool itself when both dialects reject the arguments', async () => {
+    const mc = fakeEngine(() => Promise.reject(new TypeError('bad argument type')))
+    const outcome = await runToolCall(fakeTool(() => ({ ok: true, summary: 'local' })), {}, mc)
+    expect(outcome.via).toBe('direct-refused')
+    expect((outcome.value as { summary: string }).summary).toBe('local')
+  })
+
+  it('says the tool is unregistered rather than claiming the browser has no WebMCP', async () => {
+    const mc = fakeEngine(() => Promise.resolve({ ok: true }), [])
+    const outcome = await runToolCall(fakeTool(() => ({ ok: true, summary: 'local' })), {}, mc)
+    expect(outcome.via).toBe('direct-unregistered')
+    expect(VIA_LABEL[outcome.via]).toContain('not registered')
+  })
+
+  it('treats a getTools that throws as no handle, without failing the call', async () => {
     const mc = {
-      executeTool: () => Promise.reject(new Error('nope')),
+      getTools: () => Promise.reject(new Error('engine busy')),
+      executeTool: () => Promise.resolve({ ok: true, summary: 'engine' }),
     } as unknown as ModelContext
     const outcome = await runToolCall(fakeTool(() => ({ ok: true, summary: 'local' })), {}, mc)
-    expect(outcome.via).toBe('direct')
+    expect(outcome.via).toBe('direct-unregistered')
     expect((outcome.value as { summary: string }).summary).toBe('local')
   })
 
@@ -152,6 +209,28 @@ describe('runToolCall', () => {
     const outcome = await runToolCall(tool, {}, undefined)
     expect(outcome.error).toContain('boom')
     expect(outcome.value).toBeUndefined()
+  })
+})
+
+describe('isArgumentShapeError', () => {
+  it('accepts the dialect complaints that make a retry safe', () => {
+    expect(isArgumentShapeError(new TypeError('anything'))).toBe(true)
+    expect(isArgumentShapeError(new Error('Argument 2 must be a string'))).toBe(true)
+    expect(isArgumentShapeError(new Error('failed to parse JSON arguments'))).toBe(true)
+  })
+
+  it('rejects the ones that may arrive after the tool already ran', () => {
+    expect(isArgumentShapeError(new Error('the model turn timed out'))).toBe(false)
+    expect(isArgumentShapeError(new Error('tool was unregistered mid-call'))).toBe(false)
+    expect(isArgumentShapeError('permission denied by the user')).toBe(false)
+  })
+})
+
+describe('VIA_LABEL', () => {
+  it('only claims "no WebMCP" for the browser that really has none', () => {
+    expect(VIA_LABEL.direct).toContain('no WebMCP')
+    expect(VIA_LABEL['direct-unregistered']).not.toContain('no WebMCP')
+    expect(VIA_LABEL['direct-refused']).not.toContain('no WebMCP')
   })
 })
 

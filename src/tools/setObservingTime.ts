@@ -14,7 +14,7 @@
 import { getNight } from '../astro/cache'
 import type { NightEphemeris, TimeKeyword } from '../astro/night'
 import { formatLatitude, makeObserver, moonAltitudeDeg, resolveTimeKeyword, sunAltitudeDeg } from '../astro/night'
-import { roundTo } from '../astro/time'
+import { formatInZone, localDate, roundTo } from '../astro/time'
 import { store } from '../state/store'
 import type { Stamp, ToolError, ToolResult } from './envelope'
 import { defineTool, fail, ok, stamp } from './envelope'
@@ -37,6 +37,20 @@ const KEYWORDS: TimeKeyword[] = [
 const HAS_ZONE_RE = /([Zz]|[+-]\d{2}:?\d{2})$/
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
+const HOUR_MS = 3_600_000
+/** The same 1900-2100 window `parseIsoDate` enforces for dates. */
+const EARLIEST_INSTANT_MS = Date.UTC(1900, 0, 1)
+const LATEST_INSTANT_MS = Date.UTC(2100, 11, 31, 23, 59, 59, 999)
+
+/** The keyword list, spelled out once for the agent-facing strings. */
+const KEYWORD_GLOSS =
+  '"now" (the real clock; when the selected night does not contain it the slider goes to the middle of that night instead, with a caveat), ' +
+  '"sunset" (the Sun at the horizon, still far too bright to observe), ' +
+  '"darkness_start" (the start of ASTRONOMICAL darkness, Sun 18 degrees below the horizon: this is what "when it gets dark" means for observing, about 1 h 40 min after sunset at the Roque), ' +
+  '"midnight" (the middle of astronomical darkness, NOT 00:00 clock time), ' +
+  '"darkness_end" (the end of astronomical darkness, Sun back up to 18 degrees below the horizon), ' +
+  '"sunrise" (the Sun back at the horizon)'
+
 export interface SetObservingTimeData {
   time: Stamp
   night_of: string
@@ -52,22 +66,29 @@ const INPUT_SCHEMA = {
       type: 'string',
       minLength: 3,
       maxLength: 40,
-      description:
-        'ISO 8601 UTC instant ("2026-09-12T22:30:00Z") or one of the keywords now, sunset, darkness_start, midnight, darkness_end, sunrise.',
+      description: `ISO 8601 UTC instant between 1900 and 2100 ("2026-09-12T22:30:00Z"), or one of the keywords for the selected night: ${KEYWORD_GLOSS}.`,
     },
     date: DATE_SCHEMA,
   },
-  anyOf: [{ required: ['time'] }, { required: ['date'] }],
+  // No top-level anyOf: strict function-calling validators reject it. The run
+  // body returns invalid_input when neither time nor date is given, and the
+  // description says at least one of the two is required.
   additionalProperties: false,
 } as const
 
+/** 'HH:mm' in UTC, read from the instant rather than sliced off the string. */
 function hhmm(isoUtc: string): string {
-  return isoUtc.slice(11, 16)
+  return formatInZone(isoUtc, 'UTC')
+}
+
+/** The observing night that contains an instant: a night runs local noon to local noon. */
+function observingNightOf(isoUtc: string, timeZone: string | null): string {
+  return localDate(timeZone, new Date(Date.parse(isoUtc) - 12 * HOUR_MS))
 }
 
 function whenPhrase(at: Stamp): string {
   if (at.utc === null) return 'an unknown time'
-  if (at.local === null) return `${at.utc.slice(0, 10)} ${hhmm(at.utc)} UTC`
+  if (at.local === null) return `${formatInZone(at.utc, 'UTC', { withDate: true })} UTC`
   return `${at.local} local (${hhmm(at.utc)} UTC)`
 }
 
@@ -107,6 +128,25 @@ function resolveTime(
         'Use "midnight", which always exists, or pass an explicit ISO 8601 UTC instant such as "2026-09-12T22:30:00Z".',
       )
     }
+    if (keyword === 'now') {
+      // The real clock belongs to a real night. Pointing the slider at it while
+      // the app is showing another night would put the dome hours outside the
+      // window every other panel is drawn for.
+      const nowMs = Date.parse(iso)
+      const inside =
+        nowMs >= Date.parse(night.windowStartUtc) && nowMs <= Date.parse(night.windowEndUtc)
+      if (!inside) {
+        const middle = resolveTimeKeyword('midnight', night)
+        if (middle) {
+          return {
+            iso: new Date(middle).toISOString(),
+            caveats: [
+              `The real clock (${hhmm(iso)} UTC on ${iso.slice(0, 10)}) is not inside the night of ${nightOf}, so the slider went to the middle of that night instead.`,
+            ],
+          }
+        }
+      }
+    }
     return { iso: new Date(iso).toISOString(), caveats: [] }
   }
 
@@ -129,6 +169,13 @@ function resolveTime(
       'Example: { "time": "2026-09-12T22:30:00Z" } or { "time": "midnight" }.',
     )
   }
+  if (ms < EARLIEST_INSTANT_MS || ms > LATEST_INSTANT_MS) {
+    return fail(
+      'invalid_input',
+      `"${value}" is outside the range this app computes, 1900-01-01 to 2100-12-31.`,
+      'Pass an instant inside that range, or use the date argument to select the night.',
+    )
+  }
   return { iso: new Date(ms).toISOString(), caveats }
 }
 
@@ -146,12 +193,13 @@ function run(input: Record<string, unknown>): ToolResult<SetObservingTimeData> {
     )
   }
 
-  const nightOf = resolveNightOf(input.date, state.nightOf)
-  if (typeof nightOf !== 'string') return nightOf
+  const requestedNight = resolveNightOf(input.date, state.nightOf)
+  if (typeof requestedNight !== 'string') return requestedNight
+  let nightOf = requestedNight
 
   // The night is computed BEFORE anything is applied, so a keyword that does not
   // exist at this latitude fails without moving the app.
-  const night = getNight(nightOf, site)
+  let night = getNight(nightOf, site)
   const caveats: string[] = []
   let timeUtc = state.timeUtc
 
@@ -160,6 +208,23 @@ function run(input: Record<string, unknown>): ToolResult<SetObservingTimeData> {
     if ('ok' in resolved) return resolved
     timeUtc = resolved.iso
     caveats.push(...resolved.caveats)
+
+    // An instant from another night must not leave the app showing this one:
+    // the dome, the timeline and every altitude would be computed for a night
+    // the slider does not touch.
+    const ms = Date.parse(timeUtc)
+    const inside =
+      ms >= Date.parse(night.windowStartUtc) && ms <= Date.parse(night.windowEndUtc)
+    if (!inside) {
+      const containing = observingNightOf(timeUtc, site.timeZone)
+      if (containing !== nightOf) {
+        caveats.push(
+          `${hhmm(timeUtc)} UTC on ${timeUtc.slice(0, 10)} is not inside the night of ${nightOf}, so the app moved to the night of ${containing}, which contains it.`,
+        )
+        nightOf = containing
+        night = getNight(nightOf, site)
+      }
+    }
   } else {
     // Only the night changed: keep the slider where it is unless it now points
     // at a different night entirely.
@@ -215,8 +280,13 @@ function run(input: Record<string, unknown>): ToolResult<SetObservingTimeData> {
 export const setObservingTimeTool: ModelContextToolDefinition = defineTool<SetObservingTimeData>({
   name: 'set_observing_time',
   title: 'Move the observing time slider',
-  description: `Use this to move the time slider that the sky map and all target positions follow. Pass an ISO 8601 UTC instant ("2026-09-12T22:30:00Z") or a keyword for the selected night: "now", "sunset", "darkness_start", "midnight" (middle of astronomical darkness), "darkness_end", "sunrise". Optionally change the selected night with date (YYYY-MM-DD, the evening the night starts), which recomputes everything in the app. Idempotent.`,
+  description: `Use this to move the time slider that the sky map and all target positions follow. At least one of time and date is required. Pass time as an ISO 8601 UTC instant between 1900 and 2100 ("2026-09-12T22:30:00Z") or as a keyword for the selected night: ${KEYWORD_GLOSS}. Optionally change the selected night with date (YYYY-MM-DD, the evening the night starts), which recomputes everything in the app. An instant that belongs to another night moves the app to that night and says so in caveats. Idempotent.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
-  annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   run,
 })

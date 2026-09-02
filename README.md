@@ -18,7 +18,7 @@ The architectural consequence is the interesting part. Tools are thin wrappers o
 
 ## Try it with an agent
 
-1. **Chrome 149 or newer**: open `chrome://flags/#enable-webmcp-testing`, enable it, restart, then load https://roque-nights.netlify.app. The header badge turns to `WEBMCP LIVE · 9 TOOLS`.
+1. **Chrome 149 or newer**: open `chrome://flags/#enable-webmcp-testing`, enable it, restart, then load https://roque-nights.netlify.app. The header badge turns to `WEBMCP LIVE · 10 TOOLS`.
 2. **ChatGPT desktop (GPT-5.6 Sol or Terra)**: open the page in the built-in browser and turn on **Site tools**. GPT-5.6 Luna does not call site tools.
 3. **No WebMCP browser at hand**: open the **Agent harness** panel at the bottom of the right column. It runs the same tool objects an agent would, through `document.modelContext.executeTool` when the browser has it and directly when it does not, and every call lands in the activity log exactly the same way.
 
@@ -36,7 +36,7 @@ Compare tonight at Mauna Kea, Paranal and here, weather included.
 
 ## The 14 tools
 
-Nine are registered for the life of the page. Five are **contextual**: they are registered and unregistered as the store changes, because `modify_plan` is meaningless without a plan and `commit_proposal` is meaningless without a pending proposal. Models do not re-read the tool list on their own, so the tool whose call caused the change reports `tools_added` and `tools_removed` in its own payload.
+Ten are registered for the life of the page. Four are **contextual**: they are registered and unregistered as the store changes, because `modify_plan` is meaningless without a plan and `commit_proposal` is meaningless without a pending proposal. `clear_plan` is deliberately NOT contextual: it hands out the undo token, so unregistering it the moment it emptied the plan would take the undo away with it. Models do not re-read the tool list on their own, so the tool whose call caused the change reports `tools_added` and `tools_removed` in its own payload.
 
 Every tool returns the same envelope: `{ ok, summary, data, rejected[], caveats[], site, as_of }`. `summary` is one quotable sentence, `data` holds the numbers behind it, and `rejected` always carries a reason. No tool ever throws: failures come back as `{ ok: false, error: { code, message, hint } }`.
 
@@ -50,9 +50,9 @@ Every tool returns the same envelope: `{ ok, summary, data, rejected[], caveats[
 | 6 | `describe_current_view` | Page to agent. Centre, field of view, selection, favourites, filters and the last 20 things the human did with the mouse. | readOnly, idempotent | always |
 | 7 | `propose_plan` | You have a plan in mind. It becomes a dotted ghost plan the human accepts or rejects item by item, with reasons that come back to you. | writes proposal | always |
 | 8 | `commit_proposal` | The human has reviewed the ghost plan. Rejected items are skipped and returned with their reasons so you can renegotiate. | idempotent | **contextual**: only while a proposal is pending |
-| 9 | `modify_plan` | Add, remove, reorder or move blocks in one batch. One tool, not four. | idempotent | **contextual**: only with a plan |
+| 9 | `modify_plan` | Add, remove, reorder or move blocks in one batch. One tool, not four. | not idempotent (a repeated `add` is a second block) | **contextual**: only with a plan |
 | 10 | `get_current_plan` | You need the committed plan with its real times, altitudes and warnings. | readOnly, idempotent | **contextual**: only with a plan |
-| 11 | `clear_plan` | The human asked to start over. Requires `confirm: true`, refuses otherwise with `confirmation_required` and leaves a banner for the human, and returns an undo token. | **destructive**, not idempotent | **contextual**: only with a plan |
+| 11 | `clear_plan` | The human asked to start over. Requires `confirm: true`, refuses otherwise with `confirmation_required` and leaves a banner for the human, and returns an undo token. | **destructive**, not idempotent | always, so the undo it promises stays callable |
 | 12 | `export_plan` | The plan has to leave the browser: `json` (open schema), `ics` (calendar) or `csv`, plus a share URL that carries the whole plan. | readOnly, idempotent | **contextual**: only with a plan |
 | 13 | `import_plan` | Someone sent a plan. It is REVALIDATED for this latitude and this night, target by target, and you get the diff with reasons. | writes proposal | always |
 | 14 | `compare_dark_sky_sites` | Comparing 28 dark-sky sites worldwide for one night, optionally with cloud cover, humidity and jet stream from Open-Meteo in a single request. | readOnly, **openWorld** | always |
@@ -107,7 +107,7 @@ Sky catalogs are vendored from [d3-celestial](https://github.com/ofrohn/d3-celes
 ```bash
 npm install
 npm run dev            # vite dev server
-npm test               # 839 tests, including golden ephemeris values and a tool fuzz
+npm test               # the whole suite: golden ephemeris values, a tool fuzz and the WebMCP registration
 npm run lint           # oxlint
 npm run build          # tsc -b && vite build
 npm run preview        # serve the production build on :4173
@@ -116,7 +116,7 @@ npm run preview        # serve the production build on :4173
 node scripts/audit-webmcp.mjs http://localhost:4173/ docs/screenshots/audit.png
 ```
 
-The audit script drives the 14 tools in the order a session actually happens (read-only first, then `propose_plan` and `commit_proposal`, then the contextual plan tools), asserts every result carries a boolean `ok`, prints a table and exits non-zero if anything throws. It uses the browser's own `executeTool` when the engine is there and the page's tool objects when it is not.
+The audit script drives the 14 tools in the order a session actually happens (read-only first, then `propose_plan` and `commit_proposal`, then the contextual plan tools), asserts that every result carries a boolean `ok` and matches the outcome expected for that call (`clear_plan` without `confirm` must come back as `confirmation_required`), prints a table and exits non-zero if anything throws or answers something else. It uses the browser's own `executeTool` when the engine is there and the page's tool objects when it is not.
 
 ## What is honestly true today
 

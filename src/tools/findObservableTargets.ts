@@ -13,7 +13,7 @@
 
 import { getNight } from '../astro/cache'
 import { getTarget, type Target } from '../astro/catalog'
-import type { DarknessStatus } from '../astro/night'
+import type { DarknessStatus, NightEphemeris } from '../astro/night'
 import { findObservableTargets, type TargetVisibility } from '../astro/targets'
 import { formatInZone } from '../astro/time'
 import { store } from '../state/store'
@@ -50,6 +50,8 @@ export interface TargetCandidate {
   peak_direction: string
   peak_airmass: number | null
   moon_separation_deg: number
+  /** Share of the observing window with the Moon above the horizon, 0..1. */
+  moon_up_fraction: number
   transit: Stamp
 }
 
@@ -76,7 +78,7 @@ export interface FindObservableTargetsData {
 }
 
 export const FIND_OBSERVABLE_TARGETS_DESCRIPTION =
-  'Use this to learn what is actually worth observing on a night: Messier objects, planets, the Moon and bright stars filtered by minimum altitude, darkness window, Moon separation and magnitude, each with its observing window (start, peak, end), peak altitude and airmass, Moon separation and a 0-100 score. Also returns the objects that were REJECTED and why (too low, Moon too close, window too short, no darkness), so you can explain trade-offs to the person. Defaults to the night, site and filters currently shown in the app. Pass ids to check specific targets.'
+  'Use this to learn what is actually worth observing on a night: Messier objects, planets and the Moon filtered by minimum altitude, darkness window, Moon separation and magnitude, each with its observing window (start, peak, end), peak altitude and airmass, Moon separation, the share of the window with the Moon up and a 0-100 score. Bright stars are included only when you ask for them, with types ["star"] or by naming one in ids or query. Also returns the objects that were REJECTED and why (too low, Moon too close, window too short, no darkness), so you can explain trade-offs to the person. It works on the night, site and filters currently shown in the app unless you override them, and always echoes the values it used in data.filters_used. Pass ids to check specific targets.'
 
 // --- input helpers -------------------------------------------------------------
 
@@ -165,7 +167,8 @@ function toCandidate(visibility: TargetVisibility, timeZone: string | null): Tar
     id: target.id,
     name: target.name,
     type: target.type,
-    magnitude: target.mag,
+    // Apparent magnitude for this night: planets and the Moon carry no catalog value.
+    magnitude: visibility.magnitude,
     constellation: target.con,
     score: visibility.score,
     window: {
@@ -179,6 +182,7 @@ function toCandidate(visibility: TargetVisibility, timeZone: string | null): Tar
     peak_direction: window ? compass(window.peakAzDeg) : 'N',
     peak_airmass: window?.peakAirmass ?? null,
     moon_separation_deg: window?.moonSeparationDeg ?? 0,
+    moon_up_fraction: window?.moonUpFraction ?? 0,
     transit: stamp(visibility.transitUtc, timeZone),
   }
 }
@@ -255,6 +259,26 @@ function buildSummary(
   return `${head}: best are ${best}${more}.${rejectedClause}`
 }
 
+/** One hour with one decimal, e.g. '9.4 h'. */
+function hours(value: number | null): string {
+  return value === null ? '0 h' : `${value.toFixed(1)} h`
+}
+
+/**
+ * A bright Moon up through most of the darkness costs more than the Moon separation
+ * filter can express: it lifts the sky background everywhere. Say so, with the hours.
+ */
+function moonCaveat(night: NightEphemeris): string | null {
+  const upPct = night.moon.upDuringDarknessPct
+  if (upPct === null || upPct <= 50) return null
+  if (night.moon.illuminationPct <= 50) return null
+  return (
+    `The Moon is ${night.moon.illuminationPct}% lit and above the horizon for ${upPct}% of the darkness, ` +
+    `leaving ${hours(night.darkness.usableHours)} usable out of ${hours(night.darkness.hours)} of darkness. ` +
+    'Faint targets will look washed out even where the Moon separation filter passes them.'
+  )
+}
+
 // --- the tool --------------------------------------------------------------------
 
 export const findObservableTargetsTool = defineTool<FindObservableTargetsData>({
@@ -270,30 +294,29 @@ export const findObservableTargetsTool = defineTool<FindObservableTargetsData>({
         type: 'number',
         minimum: 5,
         maximum: 85,
-        default: 30,
         description:
-          'Lowest altitude above the horizon that still counts as observable, in degrees. Defaults to the filter shown in the app (30).',
+          'Lowest altitude above the horizon that still counts as observable, in degrees. OMIT this to honour the filter the person set in the app; the value actually used comes back as data.filters_used.min_altitude_deg. Pass a number only when the person asked to change the floor.',
       },
       types: {
         type: 'array',
         items: { type: 'string', enum: [...TARGET_TYPES] },
         maxItems: TARGET_TYPES.length,
-        description: 'Keep only these target types. Omit for every type.',
+        description:
+          'Keep only these target types. Omit to honour the type filter set in the app (every type except "star" by default). Include "star" here to add the naked eye stars to the scan.',
       },
       max_magnitude: {
         type: 'number',
         minimum: -30,
         maximum: 20,
         description:
-          'Faintest visual magnitude to keep (larger numbers are fainter). Omit for no magnitude limit.',
+          'Faintest visual magnitude to keep (larger numbers are fainter); planets and the Moon are judged on their brightness on that night. OMIT this to honour the filter set in the app, which is no limit unless the person set one; the value used comes back as data.filters_used.max_magnitude.',
       },
       min_moon_separation_deg: {
         type: 'number',
         minimum: 0,
         maximum: 180,
-        default: 30,
         description:
-          'Minimum angular distance from the Moon, in degrees, enforced only while the Moon is above the horizon.',
+          'Minimum angular distance from the Moon, in degrees, enforced only while the Moon is above the horizon. OMIT this to honour the filter the person set in the app; the value used comes back as data.filters_used.min_moon_separation_deg.',
       },
       min_window_minutes: {
         type: 'integer',
@@ -380,7 +403,7 @@ export const findObservableTargetsTool = defineTool<FindObservableTargetsData>({
     const night = getNight(nightOf, site)
     const found =
       ids !== null && ids.length === 0
-        ? { candidates: [], rejected: [] }
+        ? { candidates: [], rejected: [], starsExcluded: false }
         : findObservableTargets(night, site, {
             minAltDeg: minAltDeg ?? 30,
             types,
@@ -418,10 +441,19 @@ export const findObservableTargetsTool = defineTool<FindObservableTargetsData>({
       },
     }
 
+    const caveats = [...resolved.caveats]
+    if (found.starsExcluded) {
+      caveats.push(
+        'Bright stars were not scanned: ask for them with types ["star"], or name one in ids or query.',
+      )
+    }
+    const moon = moonCaveat(night)
+    if (moon) caveats.push(moon)
+
     const summary = buildSummary(data, rejected, site, {
       darknessStatus: night.darkness.status,
       explanation: night.explanation,
     })
-    return ok(summary, data, site, { rejected, caveats: resolved.caveats })
+    return ok(summary, data, site, { rejected, caveats })
   },
 })

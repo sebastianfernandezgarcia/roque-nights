@@ -271,6 +271,11 @@ export interface VisibilityWindow {
 export interface TargetVisibility {
   target: Target
   observable: boolean
+  /**
+   * Apparent visual magnitude for this night: the catalog value for fixed objects,
+   * the computed brightness for planets and the Moon. Null when it is unknown.
+   */
+  magnitude: number | null
   /** Why it is not observable, null when it is. */
   reason: string | null
   window: VisibilityWindow | null
@@ -374,10 +379,16 @@ function culmination(target: Target, night: NightEphemeris, site: SiteCoords): C
   return { utc: new Date(bestMs).toISOString(), altDeg: roundTo(bestAlt, 2) }
 }
 
-function rejected(target: Target, reason: string, transit: Culmination): TargetVisibility {
+function rejected(
+  target: Target,
+  reason: string,
+  transit: Culmination,
+  magnitude: number | null,
+): TargetVisibility {
   return {
     target,
     observable: false,
+    magnitude,
     reason,
     window: null,
     transitUtc: transit.utc,
@@ -416,6 +427,14 @@ function observingScore(input: {
   )
 }
 
+/** Middle of the interval a target is judged over, or of the 24 h window when there is none. */
+function magnitudeReference(night: NightEphemeris, interval: Interval | null): Date {
+  const startMs = Date.parse(interval?.startUtc ?? night.windowStartUtc)
+  const endMs = Date.parse(interval?.endUtc ?? night.windowEndUtc)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return new Date(Date.parse(night.windowStartUtc))
+  return new Date((startMs + endMs) / 2)
+}
+
 /**
  * When and how well a target can be observed inside an interval (the darkness
  * window by default). Samples the interval, keeps the longest run above
@@ -438,6 +457,11 @@ export function computeVisibility(
       ? { startUtc: night.darkness.startUtc, endUtc: night.darkness.endUtc }
       : null)
 
+  // One magnitude per night and target: a planet's brightness moves over weeks, not
+  // over one night, so a single reference instant keeps the number reported to the
+  // caller, the magnitude filter and the score in agreement.
+  const magnitude = apparentMagnitude(target, magnitudeReference(night, interval))
+
   const withAltNow = (visibility: TargetVisibility): TargetVisibility => {
     if (opts.at === undefined || opts.at === null) return visibility
     const at = opts.at instanceof Date ? opts.at : new Date(opts.at)
@@ -447,19 +471,21 @@ export function computeVisibility(
   }
 
   if (!interval) {
-    return withAltNow(rejected(target, 'no astronomical darkness on this night', NO_TRANSIT))
+    return withAltNow(
+      rejected(target, 'no astronomical darkness on this night', NO_TRANSIT, magnitude),
+    )
   }
 
   const startMs = Date.parse(interval.startUtc)
   const endMs = Date.parse(interval.endUtc)
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-    return withAltNow(rejected(target, 'the requested interval is empty', NO_TRANSIT))
+    return withAltNow(rejected(target, 'the requested interval is empty', NO_TRANSIT, magnitude))
   }
 
   const transit = culmination(target, night, site)
   if (transit.altDeg !== null && transit.altDeg <= 0) {
     return withAltNow(
-      rejected(target, 'never rises above the horizon at this latitude', transit),
+      rejected(target, 'never rises above the horizon at this latitude', transit, magnitude),
     )
   }
 
@@ -497,6 +523,7 @@ export function computeVisibility(
         target,
         `below minimum altitude (peak ${round(overallPeak)}° < ${round(minAltDeg)}°)`,
         transit,
+        magnitude,
       ),
     )
   }
@@ -537,6 +564,7 @@ export function computeVisibility(
     withAltNow({
       target,
       observable: false,
+      magnitude,
       reason,
       window,
       transitUtc: transit.utc,
@@ -557,12 +585,13 @@ export function computeVisibility(
     minutes,
     separation,
     moonUpAtPeak: moonUpAtPeak && target.body !== Body.Moon,
-    mag: apparentMagnitude(target, new Date(peakMs)),
+    mag: magnitude,
   })
 
   return withAltNow({
     target,
     observable: true,
+    magnitude,
     reason: null,
     window,
     transitUtc: transit.utc,
@@ -592,13 +621,24 @@ export interface FindOptions {
 export interface FindResult {
   candidates: TargetVisibility[]
   rejected: { id: string; name: string; reason: string }[]
+  /**
+   * True when bright stars were left out of the scan because nobody asked for them
+   * (no `types` containing 'star', no `ids`, no `query`). Tell the caller: their
+   * absence is a decision, not an oversight.
+   */
+  starsExcluded: boolean
   options: Required<FindOptions>
 }
 
 /**
- * Walks the whole catalog for one night and splits it into what is worth
- * observing and what is not, with a reason for every rejection. The Sun is not
- * in the catalog; the Moon is a legitimate candidate.
+ * Walks the catalog for one night and splits it into what is worth observing and
+ * what is not, with a reason for every rejection. The Sun is not in the catalog;
+ * the Moon is a legitimate candidate.
+ *
+ * Naked eye stars are anchors for finding things rather than things to observe, and
+ * being magnitude 0 they would otherwise fill the top of every list ahead of the
+ * Messier catalog, so the default scan leaves them out. Asking for them by type, by
+ * id or by name brings them straight back.
  */
 export function findObservableTargets(
   night: NightEphemeris,
@@ -641,22 +681,35 @@ export function findObservableTargets(
   }
 
   const typeFilter = resolved.types && resolved.types.length > 0 ? new Set(resolved.types) : null
+  // Asked for by type, by id or by name: those three are the only ways stars join in.
+  const includeStars = scope !== null || (typeFilter !== null && typeFilter.has('star'))
+  let starsExcluded = false
+
+  // Planets and the Moon change brightness by whole magnitudes, so the limit is
+  // applied to the magnitude of THIS night, not to a fixed catalog value (they carry
+  // none, and used to slip past the filter entirely).
+  const magRef = magnitudeReference(night, interval)
 
   const candidates: TargetVisibility[] = []
   const rejections: { id: string; name: string; reason: string }[] = []
 
   for (const target of ALL_TARGETS) {
     if (scope && !scope.has(target)) continue
+    if (!includeStars && target.type === 'star') {
+      starsExcluded = true
+      continue
+    }
 
     if (typeFilter && !typeFilter.has(target.type)) {
       rejections.push({ id: target.id, name: target.name, reason: 'type excluded by filter' })
       continue
     }
-    if (resolved.maxMag !== null && target.mag !== null && target.mag > resolved.maxMag) {
+    const mag = apparentMagnitude(target, magRef)
+    if (resolved.maxMag !== null && mag !== null && mag > resolved.maxMag) {
       rejections.push({
         id: target.id,
         name: target.name,
-        reason: `fainter than magnitude limit (${formatMag(target.mag)} > ${formatMag(resolved.maxMag)})`,
+        reason: `fainter than magnitude limit (${formatMag(mag)} > ${formatMag(resolved.maxMag)})`,
       })
       continue
     }
@@ -690,6 +743,7 @@ export function findObservableTargets(
   return {
     candidates: candidates.slice(0, Math.max(0, resolved.limit)),
     rejected: rejections,
+    starsExcluded,
     options: resolved,
   }
 }

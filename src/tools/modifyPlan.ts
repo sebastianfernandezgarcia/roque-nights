@@ -28,6 +28,14 @@ import type { PlanItemView } from './getCurrentPlan'
 import { TARGET_REF_SCHEMA } from './schemas'
 
 const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+/**
+ * How far outside the selected night's 24 h window a start_utc may sit.
+ *
+ * Wide enough for "the block runs past dawn" and for an agent that is one day
+ * off, narrow enough that year 9999 and the Date boundary never reach the store.
+ */
+const START_SLACK_MS = 36 * HOUR_MS
 export const MAX_OPERATIONS = 30
 export const DEFAULT_DURATION_MINUTES = 45
 const MIN_DURATION_MINUTES = 10
@@ -56,9 +64,10 @@ const OPERATION_SCHEMA = {
   type: 'object',
   properties: {
     op: {
+      type: 'string',
       enum: ['add', 'remove', 'move', 'note', 'reorder'],
       description:
-        'add a target, remove an item, move an item to another start time, set a note, or reorder items back to back.',
+        'Which edit to make, and the fields it needs: "add" needs target (start_utc, duration_minutes and note are optional; without start_utc the block is scheduled automatically inside the target visibility window); "remove" needs item_id OR target; "move" needs item_id OR target PLUS start_utc (duration_minutes optional, otherwise the block keeps its current length); "note" needs item_id OR target PLUS note (pass "" to clear it); "reorder" needs item_ids, at least two of them, in the order you want the objects observed.',
     },
     target: {
       ...TARGET_REF_SCHEMA,
@@ -68,7 +77,8 @@ const OPERATION_SCHEMA = {
     start_utc: {
       type: 'string',
       maxLength: 40,
-      description: 'ISO 8601 UTC start for add and move ("2026-09-12T22:30:00Z").',
+      description:
+        'ISO 8601 UTC start for add and move ("2026-09-12T22:30:00Z"). Must fall within 36 h of the night the app is on; to plan another night call set_observing_time with { "date": "YYYY-MM-DD" } first.',
     },
     duration_minutes: {
       type: 'integer',
@@ -120,8 +130,20 @@ function byStart(a: PlanItem, b: PlanItem): number {
   return a.startUtc.localeCompare(b.startUtc)
 }
 
-/** ISO 8601 to epoch ms, assuming UTC when the string carries no zone. */
-function parseStart(raw: unknown): { ms: number; assumedUtc: boolean } | string {
+/**
+ * ISO 8601 to epoch ms, assuming UTC when the string carries no zone, and only
+ * inside the night the app is on.
+ *
+ * The plan belongs to one night, so an instant 36 h away from that night's
+ * window is a mistake, not an edit: it would put a block nobody can see on a
+ * timeline that does not reach it, and at the extremes of the Date range it
+ * used to escape as internal_error. The refusal is a per-operation failure with
+ * a reason naming the night, like every other bad operation here.
+ */
+function parseStart(
+  raw: unknown,
+  night: NightEphemeris,
+): { ms: number; assumedUtc: boolean } | string {
   if (typeof raw !== 'string' || raw.trim() === '') {
     return 'start_utc must be an ISO 8601 UTC instant such as "2026-09-12T22:30:00Z"'
   }
@@ -130,6 +152,15 @@ function parseStart(raw: unknown): { ms: number; assumedUtc: boolean } | string 
   const ms = Date.parse(assumedUtc ? `${value}Z` : value)
   if (!Number.isFinite(ms)) {
     return `"${value}" is not an ISO 8601 instant such as "2026-09-12T22:30:00Z"`
+  }
+  const earliest = Date.parse(night.windowStartUtc) - START_SLACK_MS
+  const latest = Date.parse(night.windowEndUtc) + START_SLACK_MS
+  if (ms < earliest || ms > latest) {
+    return (
+      `"${value}" is not within 36 h of the night of ${night.nightOf} ` +
+      `(${night.windowStartUtc} to ${night.windowEndUtc} UTC); ` +
+      'call set_observing_time with { "date": "YYYY-MM-DD" } to plan another night first'
+    )
   }
   return { ms, assumedUtc }
 }
@@ -249,7 +280,7 @@ function run(input: Record<string, unknown>): ToolResult<ModifyPlanData> {
       const note = typeof entry.note === 'string' ? entry.note.slice(0, 200) : undefined
 
       if (entry.start_utc !== undefined && entry.start_utc !== null) {
-        const parsed = parseStart(entry.start_utc)
+        const parsed = parseStart(entry.start_utc, night)
         if (typeof parsed === 'string') {
           results.push({ op, ok: false, target_id: target.id, reason: parsed })
           continue
@@ -333,18 +364,18 @@ function run(input: Record<string, unknown>): ToolResult<ModifyPlanData> {
     if (op === 'move') {
       const matches = findItem(entry.item_id, entry.target)
       if (matches.length === 0) {
-        results.push({
-          op,
-          ok: false,
-          reason: `no plan item matches item_id "${String(entry.item_id ?? '')}"`,
-        })
+        const what =
+          typeof entry.item_id === 'string' && entry.item_id.trim() !== ''
+            ? `item_id "${entry.item_id}"`
+            : `target "${String(entry.target ?? '')}"`
+        results.push({ op, ok: false, reason: `no plan item matches ${what}` })
         continue
       }
       if (entry.start_utc === undefined || entry.start_utc === null) {
         results.push({ op, ok: false, item_id: matches[0].id, reason: 'move needs start_utc' })
         continue
       }
-      const parsed = parseStart(entry.start_utc)
+      const parsed = parseStart(entry.start_utc, night)
       if (typeof parsed === 'string') {
         results.push({ op, ok: false, item_id: matches[0].id, reason: parsed })
         continue
@@ -508,12 +539,15 @@ function run(input: Record<string, unknown>): ToolResult<ModifyPlanData> {
 export const modifyPlanTool: ModelContextToolDefinition = defineTool<ModifyPlanData>({
   name: 'modify_plan',
   title: 'Edit the committed plan in one batch',
-  description: `Use this to edit the committed plan directly in one batch: add targets (auto-scheduled or at a given start time), remove items, move an item, change durations or notes, or reorder. Prefer propose_plan when the person should review first. Returns the resulting plan and each operation's outcome, including failures with reasons. Only available once a plan exists.`,
+  description: `Use this to edit the committed plan directly in one batch: add targets (auto-scheduled or at a given start time), remove items, move an item, change durations or notes, or reorder. Prefer propose_plan when the person should review first. Returns the resulting plan and each operation's outcome, including failures with reasons. NOT idempotent: sending the same "add" twice leaves two blocks on the same target, so check get_current_plan before retrying. Only available once a plan exists.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
-    idempotentHint: true,
+    // "add" mints a fresh item id on every call, so the same batch sent twice
+    // leaves two blocks on the same target: not idempotent, and saying so keeps
+    // an agent from retrying a call it believes is free.
+    idempotentHint: false,
     openWorldHint: false,
   },
   run,

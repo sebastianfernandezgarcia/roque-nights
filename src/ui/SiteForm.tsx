@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { isValidTimeZone } from '../astro/time'
-import { DARK_SKY_SITES, SITE_BY_ID } from '../data/sites'
+import { DARK_SKY_SITES, SITE_BY_ID, findSite } from '../data/sites'
 import { useRoqueStore } from '../state/store'
 import type { Site } from '../state/types'
 
@@ -120,8 +120,24 @@ export function buildSiteFromValues(values: FormValues): { site: Site } | { erro
   }
 }
 
-/** Maps an agent payload (snake_case, like the tools) onto the form fields. */
-function valuesFromPayload(payload: Record<string, unknown>, current: FormValues): FormValues {
+export interface PayloadValues {
+  values: FormValues
+  /** A site_id that was supplied and resolves to nothing in the catalog. */
+  unknownSiteId: string | null
+}
+
+/**
+ * Maps an agent payload (snake_case, like the tools) onto the form fields.
+ *
+ * The id goes through the same forgiving resolver the tools use, so "Mauna Kea",
+ * "MAUNA-KEA" and " mauna-kea" all land on `mauna-kea`. An id that resolves to
+ * nothing is reported rather than quietly dropped: falling back to the site the
+ * app already showed and answering "Site set to ..." is the worst answer here.
+ */
+export function valuesFromPayload(
+  payload: Record<string, unknown>,
+  current: FormValues,
+): PayloadValues {
   const read = (key: string): string | null => {
     const value = payload[key]
     if (value === undefined || value === null) return null
@@ -129,17 +145,38 @@ function valuesFromPayload(payload: Record<string, unknown>, current: FormValues
     if (typeof value === 'string') return value
     return null
   }
-  const siteId = read('site_id') ?? read('id')
-  const explicitId = siteId && SITE_BY_ID.has(siteId) ? siteId : null
+  const rawId = read('site_id') ?? read('id')
+  const siteId = rawId === null || rawId.trim() === '' ? null : rawId.trim()
+  const matched = siteId === null || siteId === CUSTOM ? undefined : findSite(siteId)
+  const explicitId = matched?.id ?? null
   const hasCoords = read('latitude') !== null || read('longitude') !== null
+  const unknownSiteId =
+    siteId !== null && siteId !== CUSTOM && matched === undefined && !hasCoords ? siteId : null
   return {
-    siteId: explicitId ?? (hasCoords ? CUSTOM : current.siteId),
-    latitude: read('latitude') ?? (hasCoords ? '' : current.latitude),
-    longitude: read('longitude') ?? (hasCoords ? '' : current.longitude),
-    elevationM: read('elevation_m') ?? read('elevation') ?? (hasCoords ? '' : current.elevationM),
-    timeZone: read('time_zone') ?? read('timezone') ?? (hasCoords ? '' : current.timeZone),
-    name: read('name') ?? (hasCoords ? '' : current.name),
+    unknownSiteId,
+    values: {
+      siteId: explicitId ?? (hasCoords || siteId === CUSTOM ? CUSTOM : current.siteId),
+      latitude: read('latitude') ?? (hasCoords ? '' : current.latitude),
+      longitude: read('longitude') ?? (hasCoords ? '' : current.longitude),
+      elevationM: read('elevation_m') ?? read('elevation') ?? (hasCoords ? '' : current.elevationM),
+      timeZone: read('time_zone') ?? read('timezone') ?? (hasCoords ? '' : current.timeZone),
+      name: read('name') ?? (hasCoords ? '' : current.name),
+    },
   }
+}
+
+/**
+ * The form as it stands in the DOM, keyed exactly like an agent payload.
+ *
+ * Both paths read this, so a `submit` and an `agentInvoked` on the same form can
+ * never disagree about what the human currently has typed in it.
+ */
+export function payloadFromForm(form: HTMLFormElement): Record<string, string> {
+  const payload: Record<string, string> = {}
+  for (const [key, value] of new FormData(form).entries()) {
+    if (typeof value === 'string') payload[key] = value
+  }
+  return payload
 }
 
 function describeSite(site: Site): string {
@@ -180,31 +217,48 @@ export function SiteForm({ open, onClose }: { open: boolean; onClose: () => void
     const form = formRef.current
     if (!form) return
     const onAgentInvoked = (event: Event) => {
+      // First statement: a UA that treats an un-defaulted agentInvoked as "the
+      // page did not handle it" would submit the form natively and undo this.
+      event.preventDefault()
       const payload = event as Event & {
         data?: Record<string, unknown>
         detail?: Record<string, unknown>
         respondWith?: (value: unknown) => void
       }
-      const data = payload.data ?? payload.detail ?? {}
-      const next = valuesFromPayload(data, valuesForSite(site))
+      const respond = (value: unknown) => {
+        if (typeof payload.respondWith === 'function') payload.respondWith(value)
+      }
+      // No payload means "submit what the form holds", which is the DOM, not
+      // the site the app already had: answering "Site set to X" for a call that
+      // changed nothing is the failure this guards against.
+      const data = payload.data ?? payload.detail ?? payloadFromForm(form)
+      const { values: next, unknownSiteId } = valuesFromPayload(data, valuesForSite(site))
+      if (unknownSiteId !== null) {
+        const message = `"${unknownSiteId}" is not a known dark-sky site id.`
+        setError(message)
+        respond({
+          ok: false,
+          error: {
+            code: 'invalid_site',
+            message,
+            hint: `Use one of: ${DARK_SKY_SITES.slice(0, 6)
+              .map((s) => s.id)
+              .join(', ')} (${DARK_SKY_SITES.length} in total), or pass latitude and longitude.`,
+          },
+        })
+        return
+      }
       setValues(next)
       const result = buildSiteFromValues(next)
       if ('error' in result) {
         setError(result.error)
-        if (typeof payload.respondWith === 'function') {
-          payload.respondWith({
-            ok: false,
-            error: { code: 'invalid_site', message: result.error },
-          })
-        }
+        respond({ ok: false, error: { code: 'invalid_site', message: result.error } })
         return
       }
       setError(null)
       setNotice(describeSite(result.site))
       setSite(result.site, 'agent')
-      if (typeof payload.respondWith === 'function') {
-        payload.respondWith({ ok: true, summary: describeSite(result.site) })
-      }
+      respond({ ok: true, summary: describeSite(result.site) })
     }
     form.addEventListener('agentInvoked', onAgentInvoked)
     return () => form.removeEventListener('agentInvoked', onAgentInvoked)
@@ -232,7 +286,10 @@ export function SiteForm({ open, onClose }: { open: boolean; onClose: () => void
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const result = buildSiteFromValues(values)
+    // Read the DOM, not the `values` closure: the agent path reads the same
+    // thing, so the two can never apply different sites from one form.
+    const { values: next } = valuesFromPayload(payloadFromForm(event.currentTarget), values)
+    const result = buildSiteFromValues(next)
     if ('error' in result) {
       setError(result.error)
       return

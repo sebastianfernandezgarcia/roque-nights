@@ -209,7 +209,7 @@ export function TimeSlider() {
             <button
               key={s}
               type="button"
-              className={`${BUTTON} ${speed === s ? 'border-ember/60 text-ember' : ''}`}
+              className={`${BUTTON} ${speed === s ? 'accent-chrome border-ember/60 text-ember' : ''}`}
               onClick={() => setSpeed((current) => (current === s ? 0 : s))}
             >
               x{s}

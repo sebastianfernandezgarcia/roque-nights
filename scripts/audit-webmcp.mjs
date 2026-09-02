@@ -3,8 +3,11 @@
 // Runs every tool against the PRODUCTION build in a real Chromium, in the order
 // a session actually happens: read-only tools first, then propose_plan ->
 // commit_proposal, then the contextual plan tools that only exist once there is
-// a plan. Each result must carry a boolean `ok`; anything that throws or comes
-// back without one fails the audit (exit 1).
+// a plan (ten of the fourteen are registered for the life of the page; the four
+// contextual ones are get_current_plan, modify_plan, export_plan and
+// commit_proposal). Each result must carry a boolean `ok` AND match the `expect`
+// of its entry below; anything that throws, comes back without an `ok` or
+// answers something other than what was expected fails the audit (exit 1).
 //
 // Playwright's Chromium ships no WebMCP engine, so the script degrades: when
 // `document.modelContext` is missing it calls the tool objects the page exposes
@@ -49,13 +52,16 @@ const CALLS = [
     },
     expect: 'ok',
   },
-  // Everything below is contextual: it only exists because of the two above.
+  // Everything below except import_plan and clear_plan is contextual: it only
+  // exists because of the two calls above.
   { name: 'commit_proposal', input: {}, use: 'proposal_id', expect: 'ok' },
   { name: 'get_current_plan', input: {}, expect: 'ok' },
   { name: 'modify_plan', input: { operations: [{ op: 'remove', target: 'M13' }] }, expect: 'ok' },
   { name: 'export_plan', input: { format: 'json' }, expect: 'ok' },
   { name: 'import_plan', input: { source: 'M31, M45, M7' }, expect: 'ok' },
-  // No `confirm`, on purpose: the destructive tool must refuse and ask.
+  // Base, not contextual: clear_plan hands out the undo token, so it stays
+  // registered even with an empty plan. No `confirm` here on purpose: the
+  // destructive tool must refuse and ask.
   { name: 'clear_plan', input: {}, expect: 'error:confirmation_required' },
 ]
 
@@ -259,8 +265,8 @@ const after = await readStore(page)
 console.log(`${pad('TOOL', 26)}${pad('VIA', 14)}${pad('OK', 6)}${pad('MS', 6)}RESULT`)
 console.log('-'.repeat(96))
 let failures = 0
+let mismatches = 0
 for (const result of results) {
-  if (result.threw || !result.hasOk) failures += 1
   const okCell = result.threw ? 'THREW' : result.hasOk ? String(result.ok) : 'NO OK'
   const detail = result.threw
     ? result.error
@@ -273,6 +279,10 @@ for (const result of results) {
     ((result.expected === 'ok' && result.ok !== true) ||
       (result.expected?.startsWith('error:') &&
         (result.ok !== false || result.code !== result.expected.slice(6))))
+  // A tool that answers the wrong thing is a failed audit, not a footnote: the
+  // whole point of `expect` is that clear_plan asks before it deletes.
+  if (result.threw || !result.hasOk) failures += 1
+  else if (mismatch) mismatches += 1
   console.log(
     `${pad(result.name, 26)}${pad(result.via, 14)}${pad(okCell, 6)}${pad(result.ms ?? '-', 6)}${mismatch ? '[unexpected] ' : ''}${String(detail).replace(/\s+/g, ' ').slice(0, 100)}`,
   )
@@ -292,8 +302,19 @@ if (pageErrors.length > 0) {
 
 await browser.close()
 
-if (failures > 0) {
-  console.error(`\nFAILED: ${failures} of ${results.length} tools threw or returned no boolean ok.`)
+if (failures > 0 || mismatches > 0) {
+  if (failures > 0) {
+    console.error(
+      `\nFAILED: ${failures} of ${results.length} tools threw or returned no boolean ok.`,
+    )
+  }
+  if (mismatches > 0) {
+    console.error(
+      `FAILED: ${mismatches} of ${results.length} tools answered something other than their expected result (marked [unexpected] above).`,
+    )
+  }
   process.exit(1)
 }
-console.log(`\nPASSED: ${results.length} tools, every result carries a boolean ok.`)
+console.log(
+  `\nPASSED: ${results.length} tools, every result carries a boolean ok and matches its expected outcome.`,
+)

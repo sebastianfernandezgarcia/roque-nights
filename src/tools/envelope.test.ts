@@ -204,6 +204,59 @@ describe('defineTool', () => {
     expect(seen[0]).toEqual({})
   })
 
+  // An engine that still passes the pre-PR-246 JSON string used to have its
+  // arguments replaced by {}, so the tool answered the app's current state as
+  // if it were the answer to a question nobody asked.
+  it('parses arguments delivered as a JSON string', async () => {
+    const seen: Record<string, unknown>[] = []
+    const tool = definition((input) => {
+      seen.push(input)
+      return ok('fine', null, ROQUE)
+    })
+    const result = (await (tool.execute as (i?: unknown) => Promise<unknown>)(
+      '{"date":"2026-09-12"}',
+    )) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(seen[0]).toEqual({ date: '2026-09-12' })
+  })
+
+  it('refuses a string of arguments that is not JSON instead of dropping it', async () => {
+    let ran = false
+    const tool = definition(() => {
+      ran = true
+      return ok('fine', null, ROQUE)
+    })
+    const result = (await (tool.execute as (i?: unknown) => Promise<unknown>)(
+      'date=2026-09-12',
+    )) as ReturnType<typeof fail>
+    expect(ran).toBe(false)
+    expect(result.ok).toBe(false)
+    expect(result.error.code).toBe('invalid_input')
+    expect(result.error.message).toContain('test_tool')
+  })
+
+  it('refuses arguments that are neither an object nor a JSON object', async () => {
+    const tool = definition(() => ok('fine', null, ROQUE))
+    for (const bad of [42, true, '[1,2]', '"just a string"']) {
+      const result = (await (tool.execute as (i?: unknown) => Promise<unknown>)(bad)) as ReturnType<
+        typeof fail
+      >
+      expect(result.ok).toBe(false)
+      expect(result.error.code).toBe('invalid_input')
+    }
+  })
+
+  it('still treats an empty string and null as no arguments', async () => {
+    const seen: Record<string, unknown>[] = []
+    const tool = definition((input) => {
+      seen.push(input)
+      return ok('fine', null, ROQUE)
+    })
+    await (tool.execute as (i?: unknown) => Promise<unknown>)('')
+    await (tool.execute as (i?: unknown) => Promise<unknown>)(null)
+    expect(seen).toEqual([{}, {}])
+  })
+
   it('turns a thrown error into internal_error instead of rejecting', async () => {
     const tool = definition(() => {
       throw new Error('boom')
@@ -262,7 +315,7 @@ describe('shared JSON Schema fragments', () => {
     expect(validate(20260902)).toBe(false)
   })
 
-  it('compiles the site fragment, requires the coordinate pair and refuses extras', () => {
+  it('compiles the site fragment, accepts a catalog id and refuses extras', () => {
     const validate = ajv.compile(SITE_SCHEMA)
     expect(validate({ latitude: 19.8207, longitude: -155.4681 })).toBe(true)
     expect(
@@ -274,7 +327,14 @@ describe('shared JSON Schema fragments', () => {
         name: 'Mauna Kea',
       }),
     ).toBe(true)
-    expect(validate({ latitude: 19.8207 })).toBe(false)
+    // Naming a catalog site is the preferred shape: it carries the exact
+    // elevation and IANA zone, which coordinates alone do not.
+    expect(validate({ id: 'mauna-kea' })).toBe(true)
+    expect(validate({ name: 'Mauna Kea' })).toBe(true)
+    // Half a coordinate pair is a runtime invalid_site, not a schema error:
+    // the two valid shapes cannot be expressed here without a top-level anyOf
+    // that strict function-calling validators reject.
+    expect(validate({ latitude: 19.8207 })).toBe(true)
     expect(validate({ latitude: 19.8207, longitude: -155.4681, lat: 1 })).toBe(false)
     expect(validate({ latitude: 100, longitude: 0 })).toBe(false)
     expect(validate({ latitude: 0, longitude: -200 })).toBe(false)
@@ -285,6 +345,22 @@ describe('shared JSON Schema fragments', () => {
     expect(validate('M31')).toBe(true)
     expect(validate('')).toBe(false)
     expect(validate('x'.repeat(61))).toBe(false)
+  })
+
+  it('advertises the forgiving resolver and the way out of a bad name', () => {
+    const text = TARGET_REF_SCHEMA.description as string
+    for (const accepted of ['M 31', 'Ring Nebula', 'NGC 7089', 'Jupiter', 'Moon', 'Vega']) {
+      expect(text).toContain(accepted)
+    }
+    expect(text).toContain('unknown_target')
+  })
+
+  it('tells the agent that a site here does not move the app', () => {
+    const text = SITE_SCHEMA.description as string
+    expect(text).toContain('set_observing_site')
+    expect(text).toContain('invalid_site')
+    const id = (SITE_SCHEMA.properties as { id: { description: string } }).id
+    expect(id.description).toContain('mauna-kea')
   })
 
   it('lists exactly the ten target types of the shared vocabulary', () => {

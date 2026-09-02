@@ -11,8 +11,11 @@ import {
 
 type Result = ToolOk<CompareDarkSkySitesData> | ToolError
 
-async function call(input: Record<string, unknown> = {}): Promise<Result> {
-  return (await compareDarkSkySitesTool.execute(input, {})) as Result
+async function call(
+  input: Record<string, unknown> = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<Result> {
+  return (await compareDarkSkySitesTool.execute(input, options)) as Result
 }
 
 function expectOk(result: Result): ToolOk<CompareDarkSkySitesData> {
@@ -249,6 +252,30 @@ describe('nights that are not dark', () => {
     expect(result.rejected[0].reason).toMatch(/no astronomical darkness/i)
     expect(result.summary).toMatch(/No .*site/i)
   }, 30_000)
+})
+
+describe('cancellation', () => {
+  it('answers aborted instead of a full comparison built on the cached forecast', async () => {
+    vi.stubGlobal('fetch', forecastMock([0]))
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await call({ limit: 3 }, { signal: controller.signal })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.code).toBe('aborted')
+    expect(result.error.message).toMatch(/cancel|abort/i)
+  })
+})
+
+describe('the declaration an agent reads', () => {
+  it('lists every catalog id in site_ids, not a sample of three', () => {
+    const schema = compareDarkSkySitesTool.inputSchema as {
+      properties: { site_ids: { description: string } }
+    }
+    const description = schema.properties.site_ids.description
+    for (const site of DARK_SKY_SITES) expect(description).toContain(site.id)
+  })
 })
 
 describe('refusals', () => {

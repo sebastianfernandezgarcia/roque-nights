@@ -192,7 +192,9 @@ function darkIndices(times: string[], darkness: Interval): number[] {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return picked
   for (let i = 0; i < times.length; i++) {
     // Open-Meteo returns 'YYYY-MM-DDTHH:mm' with timezone=UTC and no zone suffix.
+    // A payload that puts anything else in there is a bad forecast, not a crash.
     const raw = times[i]
+    if (typeof raw !== 'string') continue
     const slotMs = Date.parse(raw.endsWith('Z') ? raw : `${raw}:00Z`)
     if (!Number.isFinite(slotMs)) continue
     if (slotMs < endMs && slotMs + HOUR_MS > startMs) picked.push(i)
@@ -364,18 +366,22 @@ export async function fetchNightWeather(
   let live = 0
   for (let i = 0; i < sites.length; i++) {
     const site = sites[i]
-    const hourly = hourlyOf(entries[i])
-    const weather = hourly ? nightWeatherFromHourly(hourly, intervalOf(site, darkness)) : null
+    let weather: NightWeather | null = null
+    let reason = 'Open-Meteo returned no usable hours for this site'
+    try {
+      const hourly = hourlyOf(entries[i])
+      weather = hourly ? nightWeatherFromHourly(hourly, intervalOf(site, darkness)) : null
+    } catch {
+      // Belt and braces: one malformed site must not take the whole answer down.
+      weather = null
+      reason = 'Open-Meteo returned an unexpected payload shape for this site'
+    }
     if (weather) {
       live++
       result[site.id] = weather
     } else {
       const nightOf = site.nightOf ?? dateOf(intervalOf(site, darkness).startUtc)
-      result[site.id] = cachedNightWeather(
-        site.id,
-        nightOf,
-        'Open-Meteo returned no usable hours for this site',
-      )
+      result[site.id] = cachedNightWeather(site.id, nightOf, reason)
     }
   }
 

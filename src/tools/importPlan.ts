@@ -524,6 +524,11 @@ export const importPlanTool = defineTool<ImportPlanData>({
     required: ['source'],
     additionalProperties: false,
   },
-  annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   run,
 })

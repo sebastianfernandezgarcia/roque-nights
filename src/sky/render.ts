@@ -23,8 +23,6 @@ const ABYSS = '#05060A'
 const AMBER = '#FFB454'
 const SIGNAL = '#FF5C4D'
 const MONO = '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace'
-/** Softens the five nested Milky Way contours into one band of light. */
-const MILKY_WAY_BLUR_PX = 7
 
 export interface RenderStyle {
   /** Red light mode. It tints the instrument marks, never the sky itself. */
@@ -216,9 +214,9 @@ function drawMilkyWay(ctx: CanvasRenderingContext2D, scene: Scene, horizon: Path
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineJoin = 'round'
   // The catalog gives five nested contours; drawn crisp they read as a contour
-  // map, not as a galaxy. A blur is what turns them back into light. Browsers
-  // without canvas filters simply ignore this and get the feathered strokes.
-  ctx.filter = `blur(${MILKY_WAY_BLUR_PX}px)`
+  // map, not as a galaxy. The two wide strokes below are what turn them back
+  // into light. A canvas `filter: blur()` over the whole layer did the same job
+  // twice and cost more than every other layer of the frame put together.
   for (const level of scene.milkyWay) {
     const path = new Path2D()
     let drew = false
@@ -256,12 +254,7 @@ function drawMilkyWay(ctx: CanvasRenderingContext2D, scene: Scene, horizon: Path
   ctx.restore()
 }
 
-function drawConstellations(
-  ctx: CanvasRenderingContext2D,
-  scene: Scene,
-  style: RenderStyle,
-  fovDeg: number,
-): void {
+function drawConstellations(ctx: CanvasRenderingContext2D, scene: Scene): void {
   const path = new Path2D()
   // A segment longer than the canvas means the two ends are on opposite sides of
   // the projection: never join them.
@@ -286,19 +279,33 @@ function drawConstellations(
   ctx.strokeStyle = 'rgba(255, 180, 84, 0.18)'
   ctx.lineWidth = 1
   ctx.stroke(path)
+}
 
+/**
+ * Constellation names, LAST in the label queue.
+ *
+ * They are context, not data: an object the agent pointed at, a plan stop or a
+ * Messier id must never lose its name to the word CYGNUS. Sharing the placer
+ * with `drawObjects` and running after it is what makes that a rule rather than
+ * a hope, so a colliding name is simply dropped.
+ */
+function drawConstellationNames(
+  ctx: CanvasRenderingContext2D,
+  scene: Scene,
+  style: RenderStyle,
+  fovDeg: number,
+  place: LabelPlacer,
+): void {
   if (!style.showConstellationNames || fovDeg > 120) return
   ctx.fillStyle = 'rgba(255, 180, 84, 0.35)'
   ctx.font = `10px ${MONO}`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
   for (const constellation of scene.constellations) {
-    if (constellation.label) {
-      ctx.fillText(constellation.name.toUpperCase(), constellation.label.x, constellation.label.y)
-    }
+    const label = constellation.label
+    if (!label) continue
+    const text = constellation.name.toUpperCase()
+    // The placer works from the left edge of the text; these are centred.
+    place(text, label.x - ctx.measureText(text).width / 2, label.y, false)
   }
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
 }
 
 /** Stars, batched by colour: one path and one fill for every colour on screen. */
@@ -553,7 +560,13 @@ const LABEL_LINE_H = 11
  * word reads as a bug, so the label is nudged back inside the frame the same
  * way the cardinal points are, and only then tested for collisions.
  */
-function labelPlacer(ctx: CanvasRenderingContext2D, width: number, height: number) {
+type LabelPlacer = (text: string, x: number, y: number, force: boolean) => boolean
+
+function labelPlacer(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): LabelPlacer {
   const placed: { x0: number; y0: number; x1: number; y1: number }[] = []
   return (text: string, x: number, y: number, force: boolean): boolean => {
     const textWidth = ctx.measureText(text).width
@@ -585,11 +598,11 @@ function drawObjects(
   scene: Scene,
   style: RenderStyle,
   fovDeg: number,
+  place: LabelPlacer,
 ): void {
   const sun = scene.objects.find((o) => o.kind === 'sun') ?? null
 
   ctx.font = `10px ${MONO}`
-  const place = labelPlacer(ctx, scene.width, scene.height)
   const isMarked = (object: SceneObject): boolean =>
     object.id === style.selectedId ||
     style.highlightedIds.has(object.id) ||
@@ -798,14 +811,24 @@ function drawMarks(
   style: RenderStyle,
   anchors: Map<string, Anchor>,
 ): void {
-  // Favourites: a small amber spark at the shoulder of the object.
-  ctx.font = `9px ${MONO}`
-  ctx.fillStyle = AMBER
+  // Favourites: a thin dashed amber ring, the human's own mark. It used to be a
+  // 9 px glyph at the shoulder of the object, which was indistinguishable from
+  // the name label beside it, and the agent reads this set through
+  // describe_current_view, so the human has to be able to SEE what it will read.
+  ctx.save()
+  ctx.setLineDash([2, 3])
+  ctx.strokeStyle = 'rgba(255, 180, 84, 0.75)'
+  ctx.lineWidth = 1
   for (const id of style.favoriteIds) {
     const anchor = anchors.get(id)
     if (!anchor) continue
-    ctx.fillText('✦', anchor.x + anchor.r + 2, anchor.y - anchor.r - 2)
+    // A floor on the radius: at the whole dome a Messier glyph is 2 px, and a
+    // ring that small is the sparkle this replaced.
+    ctx.beginPath()
+    ctx.arc(anchor.x, anchor.y, Math.max(anchor.r + 5, 7.5), 0, TAU)
+    ctx.stroke()
   }
+  ctx.restore()
 
   // Agent highlight: a red ring with four ticks, the mark of the other operator.
   for (const id of style.highlightedIds) {
@@ -872,6 +895,38 @@ function drawReticle(ctx: CanvasRenderingContext2D, scene: Scene, pulse: number)
   ctx.restore()
 }
 
+/**
+ * Red light over the instrument.
+ *
+ * Two passes, and they are deliberately different operations. The GROUND below
+ * the horizon gets a warm fill LAID ON it: it is almost black, and a multiply
+ * over black changes nothing, which is why the old 6 % wash was invisible. The
+ * sky itself only gets the multiply, which cools nothing and shifts no star
+ * colour perceptibly: the data must not change when the lights do.
+ */
+function drawRedLightWash(
+  ctx: CanvasRenderingContext2D,
+  scene: Scene,
+  horizon: Path2D | null,
+): void {
+  ctx.save()
+  if (horizon) {
+    ctx.fillStyle = 'rgba(150, 40, 20, 0.16)'
+    if (skyIsInside(scene)) {
+      const ground = new Path2D()
+      ground.rect(0, 0, scene.width, scene.height)
+      ground.addPath(horizon)
+      ctx.fill(ground, 'evenodd')
+    } else {
+      ctx.fill(horizon, 'nonzero')
+    }
+  }
+  ctx.globalCompositeOperation = 'multiply'
+  ctx.fillStyle = 'rgba(255, 214, 190, 0.14)'
+  ctx.fillRect(0, 0, scene.width, scene.height)
+  ctx.restore()
+}
+
 /** A photographic vignette. Cheap, and it stops the corners from looking flat. */
 function drawVignette(ctx: CanvasRenderingContext2D, scene: Scene): void {
   const cx = scene.width / 2
@@ -903,12 +958,18 @@ export function renderSky(
   const fovDeg = sceneFovDeg(scene)
   const horizon = horizonPath(scene)
 
+  // One collision set for every label on the frame, filled in priority order:
+  // objects first, constellation names last (see drawConstellationNames).
+  ctx.font = `10px ${MONO}`
+  const place = labelPlacer(ctx, scene.width, scene.height)
+
   drawSky(ctx, scene)
   drawTwilightGlow(ctx, scene)
   drawMilkyWay(ctx, scene, horizon)
-  drawConstellations(ctx, scene, style, fovDeg)
+  drawConstellations(ctx, scene)
   drawStars(ctx, scene, style, fovDeg)
-  drawObjects(ctx, scene, style, fovDeg)
+  drawObjects(ctx, scene, style, fovDeg, place)
+  drawConstellationNames(ctx, scene, style, fovDeg, place)
   drawHorizon(ctx, scene, horizon)
   drawVignette(ctx, scene)
 
@@ -926,13 +987,5 @@ export function renderSky(
   drawMarks(ctx, style, anchors)
   drawReticle(ctx, scene, style.reticlePulse)
 
-  // Red light mode is the chrome's business, but a whisper of it over the sky
-  // keeps the instrument feeling like one instrument.
-  if (style.nightMode) {
-    ctx.save()
-    ctx.globalCompositeOperation = 'multiply'
-    ctx.fillStyle = 'rgba(255, 214, 190, 0.06)'
-    ctx.fillRect(0, 0, scene.width, scene.height)
-    ctx.restore()
-  }
+  if (style.nightMode) drawRedLightWash(ctx, scene, horizon)
 }

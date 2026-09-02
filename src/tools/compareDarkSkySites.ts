@@ -199,7 +199,7 @@ export const compareDarkSkySitesTool = defineTool<CompareDarkSkySitesData>({
         type: 'array',
         items: { type: 'string', minLength: 1, maxLength: 60 },
         maxItems: MAX_SITE_LIMIT,
-        description: `Restrict the comparison to these dark-sky sites, by id or by name (for example ${DARK_SKY_SITES.slice(0, 3).map((s) => s.id).join(', ')}). Omit to compare all ${DARK_SKY_SITES.length}.`,
+        description: `Restrict the comparison to these dark-sky sites, by id or by name; matching ignores case and punctuation and accepts a name prefix. Known ids: ${DARK_SKY_SITES.map((s) => s.id).join(', ')}. Omit to compare all ${DARK_SKY_SITES.length}.`,
       },
       include_current_site: {
         type: 'boolean',
@@ -290,6 +290,11 @@ export const compareDarkSkySitesTool = defineTool<CompareDarkSkySitesData>({
     }
 
     // 2. The ephemeris for each of them. A site with no darkness is a rejection with a reason.
+    // ~24 sites of ephemeris is the expensive part, so a cancellation that
+    // arrived before it must not be answered with a full comparison.
+    if (options.signal?.aborted) {
+      return fail('aborted', 'compare_dark_sky_sites was cancelled before it finished.')
+    }
     const candidates: Candidate[] = []
     for (const { site, country } of chosen) {
       const night = getNight(nightOf, site)
@@ -323,6 +328,11 @@ export const compareDarkSkySitesTool = defineTool<CompareDarkSkySitesData>({
         darkness: c.darkness,
       }))
       weatherBySite = await fetchNightWeather(queries, candidates[0].darkness, options.signal)
+      // fetchNightWeather turns an AbortError into the cached snapshot by
+      // design, so the cancellation has to be noticed here instead.
+      if (options.signal?.aborted) {
+        return fail('aborted', 'compare_dark_sky_sites was cancelled before it finished.')
+      }
 
       const values = Object.values(weatherBySite).filter((w): w is NightWeather => w !== null)
       const live = values.filter((w) => w.source === 'open-meteo')

@@ -29,6 +29,40 @@ const MAX_DRAG_PASSES = 4
 /** A pass that buys less than a twentieth of a pixel has converged. */
 const DRAG_EPSILON_PX = 0.05
 
+export interface TrailingBurst {
+  /** One notch happened. `onSettled` fires `delayMs` after the LAST one. */
+  bump(): void
+  cancel(): void
+}
+
+/**
+ * Trailing throttle for a burst of wheel notches.
+ *
+ * A leading throttle records the first notch of a burst, which is the one value
+ * that is certainly wrong by the time the burst ends: the agent then reads a
+ * field of view the human left three notches ago. This fires once, after the
+ * burst has settled, so the recorded value is the one on screen.
+ */
+export function trailingBurst(delayMs: number, onSettled: () => void): TrailingBurst {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const cancel = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+  return {
+    cancel,
+    bump() {
+      cancel()
+      timer = setTimeout(() => {
+        timer = null
+        onSettled()
+      }, delayMs)
+    },
+  }
+}
+
 export interface Hit {
   id: string
   name: string

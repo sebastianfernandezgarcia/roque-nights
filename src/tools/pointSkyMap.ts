@@ -66,7 +66,8 @@ const INPUT_SCHEMA = {
       type: 'number',
       minimum: 0,
       maximum: 360,
-      description: 'Center azimuth in degrees clockwise from north (0 = N, 90 = E, 180 = S).',
+      description:
+        'Center azimuth in degrees clockwise from north (0 = N, 90 = E, 180 = S). Ignored when target is given.',
     },
     fov_deg: {
       type: 'number',
@@ -83,6 +84,9 @@ const INPUT_SCHEMA = {
     },
     reset: { type: 'boolean', description: 'Return to the whole-sky dome view.' },
   },
+  // No top-level anyOf here either (strict function-calling validators reject
+  // it): the run body refuses an empty call with invalid_input, and the
+  // description says which argument combinations are meaningful.
   additionalProperties: false,
 } as const
 
@@ -231,7 +235,7 @@ function run(input: Record<string, unknown>): ToolResult<PointSkyMapData> {
 
   // --- highlights ----------------------------------------------------------
   const rejected: RejectedItem[] = []
-  let highlighted: string[] = state.highlightedIds
+  let highlighted: string[] = [...state.highlightedIds]
   if (hasHighlight) {
     const ids: string[] = []
     for (const raw of rawHighlight as unknown[]) {
@@ -274,10 +278,17 @@ function run(input: Record<string, unknown>): ToolResult<PointSkyMapData> {
     caveats.push(`${rejected.length} highlight target(s) were not recognised and were skipped.`)
   }
 
+  // The reticle pulse is shorter than the swing of the dome, so the mark that
+  // says "the agent put you here" would be gone by the time the map arrives.
+  // Centring on a target therefore also highlights it, and the red agent ring
+  // stays on the object after the pulse. Anything the caller highlighted is
+  // kept.
+  if (target && !highlighted.includes(target.id)) highlighted = [...highlighted, target.id]
+
   // --- move the shared map -------------------------------------------------
   store.getState().setView({ ...view, animate: true }, 'agent')
   if (target) store.getState().select(target.id, 'agent')
-  if (hasHighlight) store.getState().setHighlights(highlighted, 'agent')
+  if (hasHighlight || target) store.getState().setHighlights(highlighted, 'agent')
 
   // --- what to tell the agent ---------------------------------------------
   const aboveHorizon = target ? targetAlt.altDeg > 0 : false
@@ -338,8 +349,13 @@ function run(input: Record<string, unknown>): ToolResult<PointSkyMapData> {
 export const pointSkyMapTool: ModelContextToolDefinition = defineTool<PointSkyMapData>({
   name: 'point_sky_map',
   title: 'Point the shared sky map',
-  description: `Use this to move the shared sky map the person is looking at: center it on a target (Messier id like "M31", a planet, "Moon" or a bright star) or on an explicit altitude/azimuth, set the zoom as a field of view in degrees (186 = whole sky dome, 60 = a constellation, 10 = a cluster), and optionally highlight objects. The map animates smoothly so the person sees the move; call describe_current_view afterwards if you need to know what became visible. Returns where the target is at the map's current time (altitude, azimuth, compass direction, above or below the horizon) and warns when it is below the horizon. Does not change the plan.`,
+  description: `Use this to move the shared sky map the person is looking at: center it on a target (Messier id like "M31", a planet, "Moon" or a bright star) or on an explicit altitude/azimuth, set the zoom as a field of view in degrees (186 = whole sky dome, 60 = a constellation, 10 = a cluster), and optionally highlight objects. Pass at least one of target, altitude_deg with azimuth_deg, fov_deg, highlight or reset: an empty call is refused with invalid_input. The map animates smoothly so the person sees the move and the object you centred on keeps a red agent ring afterwards; call describe_current_view afterwards if you need to know what became visible. Returns where the target is at the map's current time (altitude, azimuth, compass direction, above or below the horizon) and warns when it is below the horizon. Does not change the plan.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
-  annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   run,
 })

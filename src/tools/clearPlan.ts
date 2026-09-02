@@ -7,7 +7,10 @@
  * the agent gets `confirmation_required` back so it can ask out loud. The
  * execute path never waits for a click (an agent turn must not hang on a human).
  *
- * A successful clear returns an undo token that is good for five minutes.
+ * A successful clear returns an undo token that is good for five minutes, and
+ * this is the one plan tool that is registered even when the plan is empty:
+ * clearing it is exactly what empties it, so an agent that lost the tool the
+ * moment it succeeded would be holding an undo token it could never spend.
  */
 
 import { UNDO_TTL_MS, store } from '../state/store'
@@ -133,7 +136,7 @@ function run(input: Record<string, unknown>): ToolResult<ClearPlanData> {
 export const clearPlanTool: ModelContextToolDefinition = defineTool<ClearPlanData>({
   name: 'clear_plan',
   title: 'Delete the whole plan (destructive)',
-  description: `Use this to delete the whole committed plan. DESTRUCTIVE: requires confirm:true. Without confirm nothing is deleted; instead the app shows the person a confirmation banner and this returns confirmation_required. On success returns an undo_token valid for 5 minutes; call clear_plan again with { undo_token } to restore the plan.`,
+  description: `Use this to delete the whole committed plan. DESTRUCTIVE: requires confirm:true. Without confirm nothing is deleted; instead the app shows the person a confirmation banner and this returns confirmation_required. On success returns an undo_token valid for 5 minutes; call clear_plan again with { undo_token } to restore the plan. Stays registered when the plan is empty so the undo is always reachable.`,
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   annotations: {
     readOnlyHint: false,

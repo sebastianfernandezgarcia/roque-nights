@@ -1,8 +1,8 @@
 /**
  * The tool catalogue and the live registration that follows the store.
  *
- * Roque Nights does not show an agent 14 tools at all times. Nine of them make
- * sense in an empty session; the four plan tools only exist while there IS a
+ * Roque Nights does not show an agent 14 tools at all times. Ten of them make
+ * sense in an empty session; the three plan tools only exist while there IS a
  * plan, and `commit_proposal` only while a proposal is waiting for the person.
  * That is what `toolchange` is for, and it is honest here: the list an agent
  * sees really is a function of what the human and the agent have built so far.
@@ -56,7 +56,7 @@ export type { ContextualState }
 // an agent is told about and the tools actually registered are the same list.
 // ---------------------------------------------------------------------------
 
-/** Always registered: tools 1, 2, 3, 4, 5, 6, 7, 13, 14 of docs/PLAN.md. */
+/** Always registered: tools 1, 2, 3, 4, 5, 6, 7, 11, 13, 14 of docs/PLAN.md. */
 export const BASE_TOOLS: ModelContextToolDefinition[] = [
   getNightEphemerisTool,
   findObservableTargetsTool,
@@ -67,13 +67,13 @@ export const BASE_TOOLS: ModelContextToolDefinition[] = [
   proposePlanTool,
   importPlanTool,
   compareDarkSkySitesTool,
+  clearPlanTool,
 ]
 
-/** Registered while the committed plan has at least one item (tools 9 to 12). */
+/** Registered while the committed plan has at least one item (tools 9, 10 and 12). */
 export const PLAN_TOOLS: ModelContextToolDefinition[] = [
   getCurrentPlanTool,
   modifyPlanTool,
-  clearPlanTool,
   exportPlanTool,
 ]
 
@@ -282,7 +282,7 @@ function sameNames(a: readonly string[], b: readonly string[]): boolean {
  * and unregisters the contextual tools it had registered.
  *
  * `baseNames` is what the caller actually managed to register; it defaults to
- * all nine, and the only reason to pass anything else is an engine that refused
+ * all ten, and the only reason to pass anything else is an engine that refused
  * one of them, in which case the badge should not claim it exists.
  */
 export function startContextualSync(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { getNight } from '../astro/cache'
 import type { SiteCoords } from '../astro/night'
-import { bandKindForAltitude, timelineGeometry } from './timelineGeometry'
+import { bandKindForAltitude, domainBounds, timelineGeometry } from './timelineGeometry'
 
 const ROQUE: SiteCoords = {
   latitude: 28.7542,
@@ -107,5 +107,46 @@ describe('timelineGeometry in degenerate cases', () => {
     expect(geo.width).toBe(1)
     expect(geo.x(night.windowEndUtc)).toBe(1)
     expect(Number.isNaN(Date.parse(geo.timeAt(0.5)))).toBe(false)
+  })
+})
+
+describe('the observable domain', () => {
+  const night = getNight('2026-09-02', ROQUE)
+
+  it('spans sunset minus an hour to sunrise plus an hour', () => {
+    const bounds = domainBounds(night, 'observable')
+    expect(bounds.startMs).toBe(Date.parse(night.sun.sunsetUtc!) - 3_600_000)
+    expect(bounds.endMs).toBe(Date.parse(night.sun.sunriseUtc!) + 3_600_000)
+  })
+
+  it('gives the dark hours most of the pixels instead of a third of them', () => {
+    const full = timelineGeometry(night, WIDTH)
+    const trimmed = timelineGeometry(night, WIDTH, 'observable')
+    const darkPx = (geo: ReturnType<typeof timelineGeometry>) =>
+      geo.x(night.darkness.endUtc!) - geo.x(night.darkness.startUtc!)
+    expect(darkPx(full) / WIDTH).toBeLessThan(0.4)
+    expect(darkPx(trimmed) / WIDTH).toBeGreaterThan(0.6)
+    expect(darkPx(trimmed)).toBeGreaterThan(darkPx(full) * 1.6)
+  })
+
+  it('still fills the width with contiguous bands, in the same colours', () => {
+    const geo = timelineGeometry(night, WIDTH, 'observable')
+    expect(geo.bands[0].x0).toBe(0)
+    expect(geo.bands[geo.bands.length - 1].x1).toBeCloseTo(WIDTH, 6)
+    for (let i = 0; i + 1 < geo.bands.length; i++) {
+      expect(geo.bands[i].x1).toBeCloseTo(geo.bands[i + 1].x0, 9)
+    }
+    expect(geo.bands.map((b) => b.kind)).toContain('darkness')
+  })
+
+  it('falls back to the whole window when the Sun never sets', () => {
+    const polar = getNight('2026-06-21', TROMSO)
+    expect(domainBounds(polar, 'observable')).toEqual(domainBounds(polar, 'window'))
+  })
+
+  it('leaves the window domain alone, so the time slider still scrubs 24 h', () => {
+    const bounds = domainBounds(night, 'window')
+    expect(bounds.startMs).toBe(Date.parse(night.windowStartUtc))
+    expect(bounds.endMs).toBe(Date.parse(night.windowEndUtc))
   })
 })

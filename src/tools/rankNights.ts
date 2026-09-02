@@ -53,7 +53,7 @@ export interface RankNightsData {
 }
 
 export const RANK_NIGHTS_DESCRIPTION =
-  'Use this to compare many nights and pick the best one instead of calling get_night_ephemeris in a loop. Scores every night in a date range (inclusive, up to 62 nights) by USABLE dark hours: astronomical darkness while the Moon is below the horizon or thinner than 15% illuminated. Returns nights sorted best-first with score (0-100), dark hours, Moon-free hours, Moon illumination and a one-line explanation. Honours cancellation.'
+  'Use this to compare many nights and pick the best one instead of calling get_night_ephemeris in a loop. Scores every night in a date range (inclusive, up to 62 nights) by USABLE dark hours: astronomical darkness while the Moon is below the horizon or thinner than 15% illuminated. Returns nights sorted best-first with score (0-100), dark hours, Moon-free hours, Moon illumination and a one-line explanation. Honours cancellation. Read-only: it does not move the app. To put the app on the night you picked, call set_observing_time with { "date": <the night_of you chose> }. from_date and to_date are both required and both name the EVENING a night starts; a two-night range is fine when the person is only choosing between, say, Friday and Saturday ({ "from_date": "2026-09-04", "to_date": "2026-09-05" }).'
 
 function toRanked(score: NightScore): RankedNight {
   return {

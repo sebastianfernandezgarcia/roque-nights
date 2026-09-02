@@ -24,12 +24,31 @@
  * Daylight mode: same instrument, cooler light. `Header.tsx` sets the attribute
  * on <html> when the human turns the red light off, so every `bg-panel` and
  * `border-panel-edge` in the tree follows without a single conditional class.
+ *
+ * The gap to the red-light palette is deliberately wide enough to read across a
+ * room: lighter panels, edges you can actually see, and cyan chrome accents.
+ * The sky canvas itself stays neutral in daylight; only red light tints it.
  */
 html[data-daylight] {
-  --color-abyss: #080b12;
-  --color-panel: #0f1420;
-  --color-panel-edge: #263043;
-  --color-faint: #93a0b8;
+  --color-abyss: #0b1220;
+  --color-panel: #16202e;
+  --color-panel-edge: #33415c;
+  --color-faint: #a4b1c8;
+}
+
+/**
+ * Chrome accents (the WebMCP badge, the red light toggle, an active button) go
+ * cyan under daylight. Marked with a class instead of a conditional Tailwind
+ * string so the swap is one rule, not one ternary per component.
+ */
+html[data-daylight] .accent-chrome {
+  color: var(--color-daylight);
+  border-color: color-mix(in srgb, var(--color-daylight) 50%, transparent);
+  background-color: color-mix(in srgb, var(--color-daylight) 12%, transparent);
+}
+
+html[data-daylight] .accent-chrome .accent-dot {
+  background-color: var(--color-daylight);
 }
 
 html {

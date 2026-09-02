@@ -103,7 +103,12 @@ export function PlanPanel() {
               <span className="text-faint tabular-nums">
                 {fmtTimeRange(item.startUtc, item.endUtc, tz)}
               </span>
-              <span className="flex-1 text-ember">{item.targetName}</span>
+              {/* The id first, the way the dome and the Inspector label it:
+                  "NGC 7092" in the plan and "M39" on the sky was the same
+                  object under two names. */}
+              <span className="flex-1 text-ember">
+                {item.targetId} <span className="text-[#e6e9f0]">{item.targetName}</span>
+              </span>
               <span
                 className={`rounded-sm px-1 text-[10px] tracking-[0.2em] uppercase ${
                   item.source === 'agent' ? 'bg-signal/15 text-signal' : 'bg-ember/15 text-ember'

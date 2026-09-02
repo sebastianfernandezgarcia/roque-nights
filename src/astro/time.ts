@@ -45,6 +45,8 @@ export function parseIsoDate(value: unknown): DateParts | null {
 }
 
 const zoneFormatters = new Map<string, Intl.DateTimeFormat>()
+/** Memoized answers of `isValidTimeZone`: an IANA name never changes its mind. */
+const zoneValid = new Map<string, boolean>()
 
 function partsFormatter(timeZone: string): Intl.DateTimeFormat {
   let formatter = zoneFormatters.get(timeZone)
@@ -92,15 +94,27 @@ function wallClock(at: Date, timeZone: string): WallClock {
   }
 }
 
-/** True when `tz` is a string accepted by Intl.DateTimeFormat as timeZone. */
+/**
+ * True when `tz` is a string accepted by Intl.DateTimeFormat as timeZone.
+ *
+ * Every formatting helper below asks this question, often thousands of times per
+ * render, and building an Intl.DateTimeFormat costs about 20 us. The answer never
+ * changes for a given string, so it is memoized on the same per zone formatter
+ * cache the rest of the module uses.
+ */
 export function isValidTimeZone(tz: unknown): tz is string {
   if (typeof tz !== 'string' || tz.length === 0) return false
+  const known = zoneValid.get(tz)
+  if (known !== undefined) return known
+  let valid: boolean
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz })
-    return true
+    partsFormatter(tz)
+    valid = true
   } catch {
-    return false
+    valid = false
   }
+  zoneValid.set(tz, valid)
+  return valid
 }
 
 function pad2(n: number): string {

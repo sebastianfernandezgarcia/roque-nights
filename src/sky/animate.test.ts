@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { DOME_VIEW, easeInOutCubic, interpolateView } from '../astro/sky'
 import type { SkyView } from '../astro/sky'
-import { createViewAnimator } from './animate'
+import { DEFAULT_ANIMATION_MS, RETICLE_MS, createViewAnimator, reticlePhase } from './animate'
 import type { AnimatorClock } from './animate'
 
 /** A clock the test drives by hand: no timers, no requestAnimationFrame, no flakiness. */
@@ -126,5 +126,28 @@ describe('createViewAnimator', () => {
     const animator = createViewAnimator((v) => frames.push(v), clock)
     animator.animateTo(FROM, { centerAltDeg: 120, centerAzDeg: 400, fovDeg: 900 }, 0)
     expect(frames[0]).toEqual({ centerAltDeg: 90, centerAzDeg: 40, fovDeg: 186 })
+  })
+})
+
+describe('reticlePhase', () => {
+  it('draws nothing while the dome is still swinging', () => {
+    // 1 is what drawReticle treats as "finished": no ring, no crosshair.
+    expect(reticlePhase(0)).toBe(1)
+    expect(reticlePhase(600)).toBe(1)
+    expect(reticlePhase(DEFAULT_ANIMATION_MS - 1)).toBe(1)
+  })
+
+  it('starts exactly when the swing lands, on the final centre', () => {
+    expect(reticlePhase(DEFAULT_ANIMATION_MS)).toBe(0)
+    expect(reticlePhase(DEFAULT_ANIMATION_MS + RETICLE_MS / 2)).toBeCloseTo(0.5, 6)
+  })
+
+  it('finishes one pulse after the swing, and stays finished', () => {
+    expect(reticlePhase(DEFAULT_ANIMATION_MS + RETICLE_MS)).toBe(1)
+    expect(reticlePhase(DEFAULT_ANIMATION_MS + RETICLE_MS * 4)).toBe(1)
+  })
+
+  it('survives a clock that hands it nonsense', () => {
+    expect(reticlePhase(Number.NaN)).toBe(1)
   })
 })

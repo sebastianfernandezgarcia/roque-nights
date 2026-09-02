@@ -84,15 +84,17 @@ export function Inspector() {
     }
   }, [target, night, timeUtc, site])
 
+  // No `at:` here on purpose: that argument only fills visibility.altNow, which
+  // this panel never reads, and it would recompute the whole night on every
+  // tick of the time slider. The live alt/az above is the one that moves.
   const visibility = useMemo(() => {
     if (!target || !night) return null
     return computeVisibility(target, night, site, {
       minAltDeg: filters.minAltDeg,
       interval: null,
       minMoonSepDeg: filters.minMoonSepDeg,
-      at: timeUtc,
     })
-  }, [target, night, site, filters.minAltDeg, filters.minMoonSepDeg, timeUtc])
+  }, [target, night, site, filters.minAltDeg, filters.minMoonSepDeg])
 
   if (!selectedId) {
     // An empty panel is a dead end. Say what the dome is for instead.
@@ -104,6 +106,7 @@ export function Inspector() {
           window. Double click or long press to mark a favorite: your agent reads favorites
           through describe_current_view.
         </p>
+        <FavoritesRow ids={favoriteIds} onToggle={toggleFavorite} />
       </section>
     )
   }
@@ -121,6 +124,7 @@ export function Inspector() {
           Nothing in the catalog matches "{selectedId}". Try a Messier id like M31, a planet or a
           bright star.
         </p>
+        <FavoritesRow ids={favoriteIds} onToggle={toggleFavorite} />
       </section>
     )
   }
@@ -225,7 +229,7 @@ export function Inspector() {
       <div className="mt-3 flex flex-wrap gap-1">
         <button
           type="button"
-          className={`${BUTTON} ${isFavorite ? 'border-ember/60 text-ember' : ''}`}
+          className={`${BUTTON} ${isFavorite ? 'accent-chrome border-ember/60 text-ember' : ''}`}
           onClick={() => toggleFavorite(target.id, 'human')}
         >
           {isFavorite ? '★ Favorite' : '☆ Favorite'}
@@ -237,7 +241,49 @@ export function Inspector() {
           Add to plan
         </button>
       </div>
+
+      <FavoritesRow ids={favoriteIds} onToggle={toggleFavorite} />
     </section>
+  )
+}
+
+/**
+ * How a favourite is named in a list: a Messier object by its catalog id, which
+ * is also what the dome prints next to it, and everything else by its name.
+ */
+export function favoriteLabel(id: string): string {
+  const target = getTarget(id)
+  if (!target) return id
+  return /^M\d+$/.test(target.id) ? target.id : target.name
+}
+
+/**
+ * The favourites the agent reads through describe_current_view, spelled out.
+ * Shown even with nothing selected: a mark the human cannot see is a mark the
+ * human cannot trust.
+ */
+function FavoritesRow({
+  ids,
+  onToggle,
+}: {
+  ids: string[]
+  onToggle: (id: string, source: 'human') => void
+}) {
+  if (ids.length === 0) return null
+  return (
+    <p className="mt-3 border-t border-panel-edge pt-2 text-[11px] text-faint">
+      <span className={LABEL}>Favorites</span>{' '}
+      <span className="text-ember">{ids.map(favoriteLabel).join(', ')}</span> ·{' '}
+      <button
+        type="button"
+        className="text-faint underline decoration-dotted hover:text-signal"
+        onClick={() => {
+          for (const id of [...ids]) onToggle(id, 'human')
+        }}
+      >
+        clear
+      </button>
+    </p>
   )
 }
 

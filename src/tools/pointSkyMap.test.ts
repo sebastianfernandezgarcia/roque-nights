@@ -51,12 +51,26 @@ beforeEach(() => {
 describe('point_sky_map declaration', () => {
   it('is the tool T13 registers, with the plan annotations', () => {
     expect(pointSkyMapTool.name).toBe('point_sky_map')
+    // destructiveHint is spelled out: in the MCP annotation contract it
+    // defaults to true whenever readOnlyHint is false, and this tool only
+    // moves the view.
     expect(pointSkyMapTool.annotations).toEqual({
       readOnlyHint: false,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     })
     expect(pointSkyMapTool.description.startsWith('Use this to move the shared sky map')).toBe(true)
+  })
+
+  it('says what an empty call does and which arguments a target overrides', () => {
+    const schema = pointSkyMapTool.inputSchema as {
+      properties: { altitude_deg: { description: string }; azimuth_deg: { description: string } }
+    }
+    expect(schema.properties.altitude_deg.description).toContain('Ignored when target is given')
+    expect(schema.properties.azimuth_deg.description).toContain('Ignored when target is given')
+    expect(pointSkyMapTool.description).toContain('Pass at least one of target')
+    expect(pointSkyMapTool.description).toContain('invalid_input')
   })
 
   it('has an input schema Ajv compiles that refuses unknown properties', () => {
@@ -159,9 +173,34 @@ describe('point_sky_map', () => {
   it('replaces the agent highlights and reports unknown ones as rejected', async () => {
     const result = expectOk(await run({ target: 'M31', highlight: ['M13', 'Saturn', 'Xanadu'] }))
 
-    expect(store.getState().highlightedIds).toEqual(['M13', 'saturn'])
-    expect(result.data.highlighted).toEqual(['M13', 'saturn'])
+    // The centred target joins the list the caller passed: the reticle pulse is
+    // over before the dome stops moving, so the ring is what is left pointing
+    // at the object.
+    expect(store.getState().highlightedIds).toEqual(['M13', 'saturn', 'M31'])
+    expect(result.data.highlighted).toEqual(['M13', 'saturn', 'M31'])
     expect(result.rejected).toEqual([{ id: 'Xanadu', name: 'Xanadu', reason: 'unknown target' }])
+  })
+
+  it('highlights the target it centred on so the agent mark outlives the reticle', async () => {
+    store.getState().setHighlights([], 'agent')
+    const result = expectOk(await run({ target: 'M13' }))
+
+    expect(store.getState().highlightedIds).toEqual(['M13'])
+    expect(result.data.highlighted).toEqual(['M13'])
+
+    // Pointing somewhere else keeps the earlier mark rather than wiping it.
+    expectOk(await run({ target: 'M31' }))
+    expect(store.getState().highlightedIds).toEqual(['M13', 'M31'])
+
+    // And it is not added twice.
+    expectOk(await run({ target: 'M31', fov_deg: 20 }))
+    expect(store.getState().highlightedIds).toEqual(['M13', 'M31'])
+  })
+
+  it('leaves the highlights alone when it only moves the view', async () => {
+    store.getState().setHighlights(['M13'], 'agent')
+    expectOk(await run({ fov_deg: 60 }))
+    expect(store.getState().highlightedIds).toEqual(['M13'])
   })
 
   it('clears the highlights with an empty array', async () => {

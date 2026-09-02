@@ -106,12 +106,14 @@ beforeEach(() => {
 })
 
 describe('tool groups', () => {
-  it('registers the 9 tools that make sense with an empty session', () => {
+  it('registers the 10 tools that make sense with an empty session', () => {
     expect(BASE_TOOLS.map((tool) => tool.name)).toEqual([...BASE_TOOL_NAMES])
-    expect(BASE_TOOLS).toHaveLength(9)
+    expect(BASE_TOOLS).toHaveLength(10)
+    // clear_plan is base so the undo it hands out is still callable afterwards.
+    expect(BASE_TOOLS.map((tool) => tool.name)).toContain('clear_plan')
   })
 
-  it('keeps the 4 plan tools and the 1 proposal tool contextual', () => {
+  it('keeps the 3 plan tools and the 1 proposal tool contextual', () => {
     expect(PLAN_TOOLS.map((tool) => tool.name)).toEqual([...PLAN_TOOL_NAMES])
     expect(PROPOSAL_TOOLS.map((tool) => tool.name)).toEqual([...PROPOSAL_TOOL_NAMES])
   })
@@ -164,7 +166,7 @@ describe('tool groups', () => {
 describe('currentToolNames', () => {
   it('lists only the base tools for an empty session', () => {
     expect(currentToolNames(store.getState())).toEqual([...BASE_TOOL_NAMES])
-    expect(currentToolNames(store.getState())).toHaveLength(9)
+    expect(currentToolNames(store.getState())).toHaveLength(10)
   })
 
   it('adds the plan tools once the plan has items', () => {
@@ -178,7 +180,7 @@ describe('currentToolNames', () => {
   it('adds commit_proposal while a proposal is pending', () => {
     addPendingProposal()
     const names = currentToolNames(store.getState())
-    expect(names).toHaveLength(10)
+    expect(names).toHaveLength(11)
     expect(names).toContain('commit_proposal')
   })
 
@@ -209,7 +211,7 @@ describe('startContextualSync', () => {
   it('registers nothing extra for an empty session but reports the base names', () => {
     expect(mc.names()).toEqual([])
     expect(store.getState().webmcp.toolNames).toEqual([...BASE_TOOL_NAMES])
-    expect(store.getState().webmcp.toolCount).toBe(9)
+    expect(store.getState().webmcp.toolCount).toBe(10)
   })
 
   it('registers the plan tools when the plan gets items and drops them when it is cleared', () => {
@@ -244,12 +246,12 @@ describe('startContextualSync', () => {
 
   it('registers instrumented tools: an agent call lands in the activity log', async () => {
     store.getState().setPlan([M31], 'agent', 'test')
-    const clear = mc.registered.get('clear_plan')
-    expect(clear).toBeDefined()
+    const modify = mc.registered.get('modify_plan')
+    expect(modify).toBeDefined()
 
-    const result = (await clear!.execute({})) as { ok: boolean }
+    const result = (await modify!.execute({})) as { ok: boolean }
     expect(result.ok).toBe(false)
-    const entry = store.getState().activity.find((item) => item.action === 'clear_plan')
+    const entry = store.getState().activity.find((item) => item.action === 'modify_plan')
     expect(entry).toBeDefined()
     expect(entry!.source).toBe('agent')
     expect(entry!.status).toBe('error')

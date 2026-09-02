@@ -9,8 +9,8 @@
  * `npm run build && npm run preview`, which is far too late to find it.
  *
  * Registration is deliberately split in two:
- *  - the nine base tools are registered here, once, for the life of the page;
- *  - the five contextual ones follow the store through `startContextualSync`
+ *  - the ten base tools are registered here, once, for the life of the page;
+ *  - the four contextual ones follow the store through `startContextualSync`
  *    (see contextual.ts), so an agent is only offered `modify_plan` when there
  *    is a plan to modify.
  */
@@ -76,7 +76,7 @@ export async function registerWebMCPTools(): Promise<void> {
       await mc.registerTool(instrument(tool), { signal: controller.signal })
       registered.push(tool.name)
     } catch {
-      // One tool an engine dislikes must not cost the page the other eight.
+      // One tool an engine dislikes must not cost the page the other nine.
     }
   }
 

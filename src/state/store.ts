@@ -153,17 +153,25 @@ export interface RoqueState extends RoqueData {
 // data lives in src/astro/* and is read by selectors and tools.
 // ---------------------------------------------------------------------------
 
+/** Local noon to local noon: half a day back from any instant is still the same night. */
+const HALF_DAY_MS = 12 * 3_600_000
+
 /**
- * Today's calendar date in a zone. Same contract as `localDate` in
- * src/astro/time.ts; duplicated here to keep the store dependency free.
+ * The observing night in progress in a zone, YYYY-MM-DD.
+ *
+ * A night belongs to the calendar date it STARTS on and runs from local noon to
+ * local noon (`localNoonUtc` in src/astro/time.ts), so at 02:00 local the night
+ * under way is still yesterday's. Reading the calendar date of `now - 12 h` gives
+ * the right answer at both ends: 22:00 stays on today, 02:00 falls back to
+ * yesterday. Written with Intl directly to keep the store free of astronomy code.
  */
-function todayIn(timeZone: string | null): string {
+export function observingNightIn(timeZone: string | null, now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: timeZone ?? 'UTC',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(new Date(now.getTime() - HALF_DAY_MS))
 }
 
 function nowIso(): string {
@@ -255,7 +263,7 @@ function withLog(
 export function createInitialState(): RoqueData {
   return {
     site: ROQUE_DE_LOS_MUCHACHOS,
-    nightOf: todayIn(ROQUE_DE_LOS_MUCHACHOS.timeZone),
+    nightOf: observingNightIn(ROQUE_DE_LOS_MUCHACHOS.timeZone),
     timeUtc: nowIso(),
     view: { ...INITIAL_VIEW },
     selectedId: null,
@@ -389,10 +397,12 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
       proposals: s.proposals.map((p) =>
         p.id === proposalId ? { ...p, status: 'committed' as const } : p,
       ),
+      // Named for the state change, not for the tool: the WebMCP wrapper already logs
+      // the call itself under 'commit_proposal', and one action must not appear twice.
       ...withLog(
         s,
         source,
-        'commit_proposal',
+        'plan_committed',
         `${applied.length} applied, ${skipped.length} skipped`,
       ),
     }))
@@ -417,18 +427,32 @@ export const store: StoreApi<RoqueState> = createStore<RoqueState>()((set, get) 
     })),
 
   clearPlan: (source) => {
-    const token = newId()
-    const removed = get().plan
+    const state = get()
+    const removed = state.plan
+    // Clearing an already empty plan must not bury the undo of the clear before it:
+    // the second call keeps the live record and hands back the same token.
+    const live =
+      state.undo && Date.parse(state.undo.expiresAt) > Date.now() ? state.undo : null
+    const undo: UndoRecord =
+      removed.length === 0 && live
+        ? live
+        : {
+            token: newId(),
+            plan: removed,
+            expiresAt: new Date(Date.now() + UNDO_TTL_MS).toISOString(),
+          }
     set((s) => ({
       plan: [],
-      undo: { token, plan: removed, expiresAt: new Date(Date.now() + UNDO_TTL_MS).toISOString() },
+      undo,
       pendingConfirmation:
         s.pendingConfirmation?.tool === 'clear_plan' ? null : s.pendingConfirmation,
-      ...withLog(s, source, 'clear_plan', `${removed.length} item${removed.length === 1 ? '' : 's'}`, {
+      // Named for the state change, not for the tool: the WebMCP wrapper already logs
+      // the call itself under 'clear_plan', and one action must not appear twice.
+      ...withLog(s, source, 'plan_cleared', `${removed.length} item${removed.length === 1 ? '' : 's'}`, {
         humanKind: 'clear_plan',
       }),
     }))
-    return token
+    return undo.token
   },
 
   undoClear: (token, source) => {

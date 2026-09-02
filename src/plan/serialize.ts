@@ -12,7 +12,7 @@
  * carries an IANA zone, because a zone is never invented.
  */
 
-import { localStamp, roundTo } from '../astro/time'
+import { isValidTimeZone, localStamp, roundTo } from '../astro/time'
 import type { RoqueState } from '../state/store'
 import type { ActorSource, PlanItem } from '../state/types'
 
@@ -58,6 +58,14 @@ export const UTC_ISO_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d{1,6
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 const MAX_ITEMS = 200
+// The lengths the published schema declares. The reader truncates instead of
+// refusing: a 10 kB note is a sloppy writer, not an unreadable plan, but nothing
+// oversized may reach the store, a summary or a calendar entry.
+const MAX_NAME = 120
+const MAX_TARGET_ID = 60
+const MAX_NOTE = 500
+/** `generator` and `author`. */
+const MAX_CREDIT = 80
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -67,8 +75,17 @@ function isUtcIso(value: unknown): value is string {
   return typeof value === 'string' && UTC_ISO_PATTERN.test(value) && !Number.isNaN(Date.parse(value))
 }
 
-function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+/** A non-blank string, trimmed and cut to the length the published schema allows. */
+function optionalString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : trimmed.slice(0, maxLength)
+}
+
+/** An IANA zone the platform knows, or null. Anything else is discarded. */
+function zoneOrNull(value: unknown): string | null {
+  const name = optionalString(value, 64)
+  return name !== undefined && isValidTimeZone(name) ? name : null
 }
 
 function nullableIso(value: unknown): string | null {
@@ -107,7 +124,7 @@ export function toObservingPlanV1(
     generator: OBSERVING_PLAN_GENERATOR,
     created_at: new Date().toISOString(),
     site: {
-      name: state.site.name,
+      name: optionalString(state.site.name, MAX_NAME) ?? 'Unnamed site',
       latitude: roundTo(state.site.latitude, 5),
       longitude: roundTo(state.site.longitude, 5),
       elevation_m: Math.round(state.site.elevationM),
@@ -117,8 +134,8 @@ export function toObservingPlanV1(
     darkness: { start_utc: darkness.startUtc, end_utc: darkness.endUtc },
     items,
   }
-  const signature = optionalString(author)
-  if (signature) document.author = signature.trim()
+  const signature = optionalString(author, MAX_CREDIT)
+  if (signature) document.author = signature
   return document
 }
 
@@ -181,8 +198,8 @@ export function parseObservingPlanV1(text: string): ParseResult {
   for (let i = 0; i < raw.items.length; i++) {
     const entry = raw.items[i]
     if (!isPlainObject(entry)) return { error: `items[${i}] is not an object.` }
-    const targetId = optionalString(entry.target_id)
-    const name = optionalString(entry.name)
+    const targetId = optionalString(entry.target_id, MAX_TARGET_ID)
+    const name = optionalString(entry.name, MAX_NAME)
     if (!targetId && !name) return { error: `items[${i}] needs a target_id or a name.` }
     if (!isUtcIso(entry.start_utc)) {
       return {
@@ -194,7 +211,7 @@ export function parseObservingPlanV1(text: string): ParseResult {
         error: `items[${i}].end_utc must be a UTC ISO instant such as 2026-09-12T21:45:00Z, got ${JSON.stringify(entry.end_utc ?? null)}.`,
       }
     }
-    const note = optionalString(entry.note)
+    const note = optionalString(entry.note, MAX_NOTE)
     items.push({
       target_id: targetId ?? (name as string),
       name: name ?? (targetId as string),
@@ -214,17 +231,22 @@ export function parseObservingPlanV1(text: string): ParseResult {
   const plan: ObservingPlanV1 = {
     $schema: OBSERVING_PLAN_SCHEMA_URL,
     version: 1,
-    generator: optionalString(raw.generator) ?? OBSERVING_PLAN_GENERATOR,
-    created_at: optionalString(raw.created_at) ?? new Date().toISOString(),
+    generator: optionalString(raw.generator, MAX_CREDIT) ?? OBSERVING_PLAN_GENERATOR,
+    // A created_at that is not a UTC instant is defaulted, not echoed back at the agent.
+    created_at: isUtcIso(raw.created_at) ? raw.created_at : new Date().toISOString(),
     site: {
-      name: optionalString(rawSite.name) ?? `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`,
+      name:
+        optionalString(rawSite.name, MAX_NAME) ??
+        `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`,
       latitude,
       longitude,
       elevation_m:
         typeof rawSite.elevation_m === 'number' && Number.isFinite(rawSite.elevation_m)
           ? Math.round(rawSite.elevation_m)
           : 0,
-      time_zone: optionalString(rawSite.time_zone) ?? null,
+      // An unknown zone is null, never a guess, and never a name Intl cannot resolve:
+      // it would travel back to the agent as if this page had accepted it.
+      time_zone: zoneOrNull(rawSite.time_zone),
     },
     night_of: nightOf,
     darkness: {
@@ -233,7 +255,7 @@ export function parseObservingPlanV1(text: string): ParseResult {
     },
     items,
   }
-  const author = optionalString(raw.author)
+  const author = optionalString(raw.author, MAX_CREDIT)
   if (author) plan.author = author
   return { plan }
 }
@@ -303,12 +325,24 @@ export function toIcs(plan: ObservingPlanV1): string {
 
 export const CSV_HEADER = 'target_id,name,start_utc,end_utc,start_local,end_local,note,source'
 
-/** RFC 4180 field: newlines collapsed to spaces so one item is always one row. */
+/** Characters a spreadsheet reads as "this cell is a formula". */
+const FORMULA_LEAD = /^[=+\-@\t\r]/
+
+/**
+ * RFC 4180 field: newlines collapsed to spaces so one item is always one row.
+ *
+ * Notes travel in from imported documents written by strangers, and Excel, Numbers
+ * and Sheets execute a cell that starts with = + - or @. Such a value is prefixed
+ * with an apostrophe and always quoted, so the spreadsheet shows the text instead of
+ * running it.
+ */
 function csvField(value: string | null | undefined): string {
   const flat = String(value ?? '')
     .replace(/\s*\r?\n\s*/g, ' ')
     .trim()
-  return /[",]/.test(flat) ? `"${flat.replace(/"/g, '""')}"` : flat
+  const safe = FORMULA_LEAD.test(flat) ? `'${flat}` : flat
+  const mustQuote = safe !== flat || /[",]/.test(safe)
+  return mustQuote ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 
 /**
