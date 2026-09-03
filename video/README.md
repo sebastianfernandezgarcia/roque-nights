@@ -117,6 +117,58 @@ composition, not one per scene, so a chip can outlive a cut. `CHIP_BLOCKLIST` dr
 the narration never names (`set_observing_time` in the Mauna Kea scene); scenes with
 `chips: false` — the cold open — get none.
 
+## Browser frame
+
+`src/browserFrame.ts` + `src/components/BrowserFrame.tsx`. Every shot of the app is drawn
+inside a minimal, unbranded dark browser window so the viewer can see, without being told,
+that this is a live page: a 52 px bar with one tab (`Roque Nights`, amber favicon dot), a
+URL field reading `roque-nights.netlify.app`, and a chip on the right —
+`WebMCP enabled · 11 site tools`. The recording is scaled uniformly into the area under
+the bar (1920x1080 → 1827x1028, `FRAME_SCALE` 0.9519, centred, 1 px `#1c2230` edge).
+
+Only app shots get one. The bare-dome shots — the cold open, the title's dome bed before
+the hard cut, the closing dome — and the outro are the piece's own frame, not a page in a
+browser; `ClipSegment.sky` decides.
+
+That scale is also the piece's one coordinate mapping. `toScreen(x, y)` takes a pixel in
+the **recording** (the raw 1920x1080 mp4) to a pixel on **screen**, and every annotation
+goes through it — there is no second conversion anywhere.
+
+## Callouts
+
+`src/callouts.ts` (the data) + `src/components/Callouts.tsx` (the layer). One entry per
+thing the viewer has to notice:
+
+```ts
+{ atSec, holdSec, kind: 'rect' | 'circle' | 'point', x, y, w, h, label?, color, labelSide? }
+```
+
+**Coordinates are recording pixels** — what you measure on the mp4 — unless the entry
+carries `space: 'screen'` (only the URL-field label does, because it points at the browser
+chrome itself). Every one of them was measured with ffmpeg plus a pixel probe on the exact
+clip second the composition shows at `atSec`; the app's right column is scrolled to a
+different offset in almost every scene, so the same tool row sits at a different `y` in
+each, and guessing is not an option.
+
+**Visual language.** Amber `#ffb454` = the human did this: a 3 px rect with 10 px corner
+ticks, or a circle that draws itself in 250 ms and then breathes. Red `#ff5c4d` = the agent
+did this: a 2 px rounded rect and a thin leader to a 22 px uppercase label pill. Draw-on
+250 ms, hold, fade 250 ms. Never more than two on screen — `npm run alignment` fails the
+report if a third ever overlaps — and a label that would land on the subtitle pill is moved
+above its target instead.
+
+The first screen scene also carries five 24 px **context labels** — the URL field, the
+tour modal, the COPY button, the `WEBMCP LIVE · 11 TOOLS` badge and the AGENT TOOLS panel —
+so that by the time the agent takes over, the viewer already knows what every part of the
+frame is.
+
+**Clicks that destroy their own target.** Three do: `Commit accepted` collapses the
+proposal card, `Revalidate plan` replaces the banner, `Copy share link` swaps its button
+for a `COPIED` chip. `log.json` records when the action *resolved*, so a marker placed on
+that millisecond would frame a hole. Each of those markers goes up just before the click,
+dies with the element, and hands over to a second, unlabelled amber rect on what the click
+produced — the committed plan, `PLAN REVALIDATED · 4 kept, 4 moved`, the `COPIED` chip.
+
 ## Audio
 
 `scripts/make-ambient.mjs` synthesises the bed from scratch — detuned sines around 55 /

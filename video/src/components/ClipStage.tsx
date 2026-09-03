@@ -1,8 +1,10 @@
 import React from 'react';
 import { AbsoluteFill, Freeze, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import manifest from '../manifest.json';
+import { FRAME_H, FRAME_SCALE, FRAME_W, FRAME_X, FRAME_Y } from '../browserFrame';
 import { C, MONO, VIGNETTE, label } from '../theme';
-import { FPS, type ClipSegment } from '../timeline';
+import { FPS, HEIGHT, WIDTH, type ClipSegment } from '../timeline';
+import { BrowserFrame } from './BrowserFrame';
 
 const clipExists = (file: string): boolean =>
   (manifest.clips as Record<string, boolean | undefined>)[file] ?? false;
@@ -42,6 +44,10 @@ const Footage: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => (
  * sky" — or the last frame of a clip that has run out. Both land on stretches the
  * recording itself is motionless through, so the hold reads as the app sitting still,
  * not as a stall. The Ken Burns drift sits outside the freeze, so a held dome breathes.
+ *
+ * An app shot is drawn inside a browser window (src/browserFrame.ts): the recording is
+ * scaled by FRAME_SCALE into the area under the bar. A bare-dome shot (`sky`) fills the
+ * frame as before — the piece opens and closes on the sky itself, not on a page.
  */
 const Segment: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => {
   const frame = useCurrentFrame();
@@ -53,8 +59,8 @@ const Segment: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => {
   );
   const freeze = seg.freezeFromFrame;
 
-  return (
-    <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: C.bg }}>
+  const picture = (
+    <>
       <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: seg.zoomOrigin }}>
         {!clipExists(seg.file) ? (
           <MissingClip file={seg.file} />
@@ -74,6 +80,40 @@ const Segment: React.FC<{ readonly seg: ClipSegment }> = ({ seg }) => {
           style={{ background: VIGNETTE, opacity: seg.vignette, pointerEvents: 'none' }}
         />
       ) : null}
+    </>
+  );
+
+  if (seg.sky) {
+    return (
+      <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: C.bg }}>{picture}</AbsoluteFill>
+    );
+  }
+
+  return (
+    <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: C.bg }}>
+      <div
+        style={{
+          position: 'absolute',
+          left: FRAME_X,
+          top: FRAME_Y,
+          width: FRAME_W,
+          height: FRAME_H,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            position: 'relative',
+            width: WIDTH,
+            height: HEIGHT,
+            transform: `scale(${FRAME_SCALE})`,
+            transformOrigin: '0 0',
+          }}
+        >
+          {picture}
+        </div>
+      </div>
+      <BrowserFrame />
     </AbsoluteFill>
   );
 };

@@ -505,6 +505,8 @@ export type ClipSegment = {
   playbackRate: number;
   /** local frame from which the frame is frozen (null = the segment never freezes) */
   freezeFromFrame: number | null;
+  /** a bare-dome shot: shown full-frame, with no browser chrome around it */
+  sky: boolean;
   darken: number;
   vignette: number;
   zoomOrigin: string;
@@ -598,6 +600,7 @@ const resolve = (): Scene[] => {
         clipStartSec,
         playbackRate: s.rate,
         freezeFromFrame,
+        sky: style.sky ?? false,
         darken: style.darken ?? 0,
         vignette: style.sky ? 1 : SCREEN_VIGNETTE,
         zoomOrigin: style.zoomOrigin ?? '50% 50%',

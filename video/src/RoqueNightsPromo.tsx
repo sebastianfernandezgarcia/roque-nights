@@ -1,6 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Audio, Sequence, interpolate, staticFile } from 'remotion';
 import manifest from './manifest.json';
+import { Callouts } from './components/Callouts';
 import { ClipStage } from './components/ClipStage';
 import { ClosingDome } from './components/ClosingDome';
 import { ColdOpen } from './components/ColdOpen';
@@ -47,6 +48,7 @@ export const RoqueNightsPromo: React.FC = () => (
       </Sequence>
     ))}
 
+    <Callouts />
     <ToolChips />
     <SubtitleTrack />
 
