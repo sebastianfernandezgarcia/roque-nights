@@ -36,8 +36,8 @@ const VOICE_GAIN = 1.15;
  * sentence is being spoken, with short ramps so the pumping stays musical. The
  * cue times come from voice.json, the same file that drives the subtitles.
  */
-const MUSIC_FULL = 0.36;
-const MUSIC_DUCKED = 0.09;
+const MUSIC_FULL = 0.22;
+const MUSIC_DUCKED = 0.045;
 const DUCK_RAMP_SEC = 0.35;
 const DUCK_LEAD_SEC = 0.15;
 const MUSIC_FADE_IN_SEC = 1.2;
