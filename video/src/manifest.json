@@ -1,6 +1,7 @@
 {
   "hasVoice": true,
   "hasAmbient": true,
+  "hasMusic": true,
   "hasDomeStill": true,
   "clips": {
     "01-onboarding.mp4": true,

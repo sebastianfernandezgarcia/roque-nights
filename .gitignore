@@ -40,3 +40,4 @@ video/.voice-tmp
 
 # Raw voice-over recordings (467 MB of .mov); the built track is video/public/voice.mp3
 FrasesGrabadas/
+video/public/music.*

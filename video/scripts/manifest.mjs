@@ -7,7 +7,8 @@
  *   - public/voice.mp3   → voice-over track
  *   - public/voice.json  → the subtitle cues (imported directly by src/subtitles.ts;
  *                          only checked for validity here)
- *   - public/ambient.m4a → music bed
+ *   - public/music.m4a   → generated music track (ducked under the voice)
+ *   - public/ambient.m4a → procedural pad, used only when there is no music
  *   - public/dome-still.jpg → thumbnail background (extracted here from 06-dome.mp4)
  *
  * It never overwrites a real clip or a real log.json.
@@ -85,6 +86,7 @@ if (!existsSync(join(CLIPS, 'log.json'))) {
 const manifest = {
   hasVoice: has('voice.mp3'),
   hasAmbient: has('ambient.m4a'),
+  hasMusic: has('music.m4a'),
   hasDomeStill,
   clips: Object.fromEntries(CLIP_FILES.map((f) => [f, existsSync(join(CLIPS, f))])),
 };
@@ -93,5 +95,5 @@ const next = `${JSON.stringify(manifest, null, 2)}\n`;
 const prev = existsSync(MANIFEST) ? readFileSync(MANIFEST, 'utf8') : '';
 if (prev !== next) writeFileSync(MANIFEST, next);
 console.log(
-  `manifest: ambient=${manifest.hasAmbient} voice=${manifest.hasVoice} voiceCues=${voiceCueCount} domeStill=${manifest.hasDomeStill} clips=${CLIP_FILES.length - missingClips.length}/${CLIP_FILES.length}`,
+  `manifest: music=${manifest.hasMusic} ambient=${manifest.hasAmbient} voice=${manifest.hasVoice} voiceCues=${voiceCueCount} domeStill=${manifest.hasDomeStill} clips=${CLIP_FILES.length - missingClips.length}/${CLIP_FILES.length}`,
 );
